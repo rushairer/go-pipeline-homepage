@@ -4,31 +4,61 @@
 
 ✅ `.github/workflows/deploy.yml` - GitHub Actions 工作流配置
 
-## 🚨 遇到 "Get Pages site failed" 错误？
+## 🚨 遇到权限错误？
 
-**立即解决步骤：**
+### 错误信息：
+- "Get Pages site failed"
+- "Create Pages site failed" 
+- "Resource not accessible by integration"
 
-1. **进入仓库设置**：`https://github.com/你的用户名/你的仓库名/settings/pages`
+### 完整解决步骤：
 
-2. **临时启用 Pages**：
-   - Source 选择：**Deploy from a branch**
-   - Branch 选择：**main** (或 master)
-   - 文件夹选择：**/ (root)**
-   - 点击 **Save**
+#### 1. 检查仓库可见性
+- 确保仓库是 **公开的 (Public)**，或者你有 GitHub Pro/Team 账户
 
-3. **等待确认**：页面会显示 "Your site is ready to be published at ..."
+#### 2. 手动启用 GitHub Pages
+1. 进入：`https://github.com/你的用户名/你的仓库名/settings/pages`
+2. **Source** 选择：**Deploy from a branch**
+3. **Branch** 选择：**main** (或 master)
+4. **文件夹** 选择：**/ (root)**
+5. 点击 **Save**
+6. 等待页面显示："Your site is ready to be published at ..."
 
-4. **切换到 Actions**：
-   - 再次进入同一个 Pages 设置页面
-   - Source 改为：**GitHub Actions**
-   - 点击 **Save**
+#### 3. 配置 Actions 权限
+1. 进入：`https://github.com/你的用户名/你的仓库名/settings/actions`
+2. 在 **Workflow permissions** 部分：
+   - 选择 **Read and write permissions**
+   - 勾选 **Allow GitHub Actions to create and approve pull requests**
+3. 点击 **Save**
 
-5. **重新运行工作流**：
-   - 进入 Actions 标签页
-   - 找到失败的工作流
-   - 点击 "Re-run jobs"
+#### 4. 切换到 GitHub Actions 部署
+1. 回到：`https://github.com/你的用户名/你的仓库名/settings/pages`
+2. **Source** 改为：**GitHub Actions**
+3. 点击 **Save**
 
-现在工作流应该可以正常运行了！
+#### 5. 重新运行工作流
+1. 进入 Actions 标签页
+2. 找到失败的工作流运行
+3. 点击 **Re-run all jobs**
+
+### 如果还是不行，尝试备用工作流：
+
+我已经创建了一个简化版本的工作流文件：`.github/workflows/deploy-simple.yml`
+
+**使用备用工作流：**
+
+1. 删除或重命名原工作流：
+   ```bash
+   mv .github/workflows/deploy.yml .github/workflows/deploy.yml.backup
+   ```
+
+2. 备用工作流会自动生效，它使用更简单的配置
+
+3. 如果备用工作流成功，说明问题在于复杂的配置，可以继续使用简化版本
+
+**两个工作流的区别：**
+- 原版本：分离的构建和部署作业，更适合复杂项目
+- 简化版：单一作业完成所有步骤，更容易调试权限问题
 
 ## GitHub 仓库配置步骤
 
