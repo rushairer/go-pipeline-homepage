@@ -2,6 +2,7 @@ import React from 'react';
 import Layout from '@theme/Layout';
 import Link from '@docusaurus/Link';
 import useDocusaurusContext from '@docusaurus/useDocusaurusContext';
+import {translate} from '@docusaurus/Translate';
 import HomepageFeatures from '../components/HomepageFeatures';
 
 function HomepageHeader() {
@@ -10,12 +11,20 @@ function HomepageHeader() {
     <header className="hero hero--primary">
       <div className="container">
         <h1 className="hero__title">{siteConfig.title}</h1>
-        <p className="hero__subtitle">{siteConfig.tagline}</p>
+        <p className="hero__subtitle">{translate({
+          id: 'homepage.tagline',
+          message: siteConfig.tagline,
+          description: 'Homepage tagline'
+        })}</p>
         <div className="buttons">
           <Link
             className="button button--secondary button--lg"
             to="/docs/intro">
-            快速开始 - 5分钟 ⏱️
+            {translate({
+              id: 'homepage.quickStart',
+              message: '快速开始 - 5分钟 ⏱️',
+              description: 'Quick start button text'
+            })}
           </Link>
         </div>
       </div>
@@ -23,12 +32,20 @@ function HomepageHeader() {
   );
 }
 
-export default function Home(): JSX.Element {
+export default function Home() {
   const {siteConfig} = useDocusaurusContext();
   return (
     <Layout
-      title={`首页 - ${siteConfig.title}`}
-      description="高性能Go批处理管道框架，支持泛型、并发安全和去重功能">
+      title={translate({
+        id: 'homepage.title',
+        message: `首页 - ${siteConfig.title}`,
+        description: 'Homepage title'
+      })}
+      description={translate({
+        id: 'homepage.description',
+        message: '高性能Go批处理管道框架，支持泛型、并发安全和去重功能',
+        description: 'Homepage description'
+      })}>
       <HomepageHeader />
       <main>
         <HomepageFeatures />

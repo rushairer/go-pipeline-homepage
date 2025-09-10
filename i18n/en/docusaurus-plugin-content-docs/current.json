@@ -1,0 +1,38 @@
+{
+  "version.label": {
+    "message": "Next",
+    "description": "The label for version current"
+  },
+  "sidebar.tutorialSidebar.category.开始使用": {
+    "message": "Getting Started",
+    "description": "The label for category Getting Started in sidebar tutorialSidebar"
+  },
+  "sidebar.tutorialSidebar.category.管道类型": {
+    "message": "Pipeline Types",
+    "description": "The label for category Pipeline Types in sidebar tutorialSidebar"
+  },
+  "sidebar.tutorialSidebar.category.配置和API": {
+    "message": "Configuration & API",
+    "description": "The label for category Configuration & API in sidebar tutorialSidebar"
+  },
+  "sidebar.tutorialSidebar.link.Introduction": {
+    "message": "Introduction",
+    "description": "The label for link Introduction in sidebar tutorialSidebar"
+  },
+  "sidebar.tutorialSidebar.link.Standard Pipeline": {
+    "message": "Standard Pipeline",
+    "description": "The label for link Standard Pipeline in sidebar tutorialSidebar"
+  },
+  "sidebar.tutorialSidebar.link.Deduplication Pipeline": {
+    "message": "Deduplication Pipeline",
+    "description": "The label for link Deduplication Pipeline in sidebar tutorialSidebar"
+  },
+  "sidebar.tutorialSidebar.link.Configuration": {
+    "message": "Configuration",
+    "description": "The label for link Configuration in sidebar tutorialSidebar"
+  },
+  "sidebar.tutorialSidebar.link.API Reference": {
+    "message": "API Reference",
+    "description": "The label for link API Reference in sidebar tutorialSidebar"
+  }
+}

@@ -1,4 +1,48 @@
 {
+  "tagline": {
+    "message": "High-Performance Go Pipeline Processing Library",
+    "description": "Site tagline"
+  },
+  "homepage.quickStart": {
+    "message": "Quick Start - 5 minutes ⏱️",
+    "description": "Quick start button text"
+  },
+  "homepage.title": {
+    "message": "Home - Go Pipeline",
+    "description": "Homepage title"
+  },
+  "homepage.description": {
+    "message": "High-performance Go batch processing pipeline framework with generics, concurrency safety, and deduplication features",
+    "description": "Homepage description"
+  },
+  "homepage.tagline": {
+    "message": "High-Performance Go Pipeline Processing Library",
+    "description": "Homepage tagline"
+  },
+  "homepage.features.generics.title": {
+    "message": "Generic Support",
+    "description": "Title for generics feature"
+  },
+  "homepage.features.generics.description": {
+    "message": "Type-safe implementation based on Go 1.18+ generics, supporting any data type with compile-time type checking.",
+    "description": "Description for generics feature"
+  },
+  "homepage.features.batch.title": {
+    "message": "Batch Processing",
+    "description": "Title for batch processing feature"
+  },
+  "homepage.features.batch.description": {
+    "message": "Supports automatic batching by size and time intervals, optimizing data processing efficiency and reducing system call overhead.",
+    "description": "Description for batch processing feature"
+  },
+  "homepage.features.concurrent.title": {
+    "message": "Concurrency Safe",
+    "description": "Title for concurrency feature"
+  },
+  "homepage.features.concurrent.description": {
+    "message": "Built-in goroutine safety mechanisms, supporting high-concurrency scenarios and ensuring thread safety of data processing.",
+    "description": "Description for concurrency feature"
+  },
   "theme.ErrorPageContent.title": {
     "message": "This page crashed.",
     "description": "The title of the fallback page when the page crashed"

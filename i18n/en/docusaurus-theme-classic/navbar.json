@@ -3,7 +3,7 @@
     "message": "Go Pipeline",
     "description": "The title in the navbar"
   },
-  "item.label.Documentation": {
+  "item.label.文档": {
     "message": "Documentation",
     "description": "Navbar item with label Documentation"
   },
