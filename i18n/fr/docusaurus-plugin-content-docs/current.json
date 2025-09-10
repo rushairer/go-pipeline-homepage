@@ -1,0 +1,38 @@
+{
+  "version.label": {
+    "message": "Suivant",
+    "description": "The label for version current"
+  },
+  "sidebar.tutorialSidebar.category.开始使用": {
+    "message": "Commencer",
+    "description": "The label for category 开始使用 in sidebar tutorialSidebar"
+  },
+  "sidebar.tutorialSidebar.category.管道类型": {
+    "message": "Types de Pipeline",
+    "description": "The label for category 管道类型 in sidebar tutorialSidebar"
+  },
+  "sidebar.tutorialSidebar.category.配置和API": {
+    "message": "Configuration et API",
+    "description": "The label for category 配置和API in sidebar tutorialSidebar"
+  },
+  "sidebar.tutorialSidebar.doc.intro": {
+    "message": "Introduction",
+    "description": "The label for the doc item intro in sidebar tutorialSidebar"
+  },
+  "sidebar.tutorialSidebar.doc.configuration": {
+    "message": "Configuration",
+    "description": "The label for the doc item configuration in sidebar tutorialSidebar"
+  },
+  "sidebar.tutorialSidebar.doc.standard-pipeline": {
+    "message": "Pipeline Standard",
+    "description": "The label for the doc item standard-pipeline in sidebar tutorialSidebar"
+  },
+  "sidebar.tutorialSidebar.doc.deduplication-pipeline": {
+    "message": "Pipeline de Déduplication",
+    "description": "The label for the doc item deduplication-pipeline in sidebar tutorialSidebar"
+  },
+  "sidebar.tutorialSidebar.doc.api-reference": {
+    "message": "Référence API",
+    "description": "The label for the doc item api-reference in sidebar tutorialSidebar"
+  }
+}

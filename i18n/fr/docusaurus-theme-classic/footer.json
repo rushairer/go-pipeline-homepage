@@ -1,0 +1,34 @@
+{
+  "link.title.文档": {
+    "message": "Documentation",
+    "description": "The title of the footer links column with title=文档 in the footer"
+  },
+  "link.title.社区": {
+    "message": "Communauté",
+    "description": "The title of the footer links column with title=社区 in the footer"
+  },
+  "link.title.更多": {
+    "message": "Plus",
+    "description": "The title of the footer links column with title=更多 in the footer"
+  },
+  "link.item.label.快速开始": {
+    "message": "Démarrage rapide",
+    "description": "The label of footer link with label=快速开始 linking to /docs/intro"
+  },
+  "link.item.label.GitHub Issues": {
+    "message": "GitHub Issues",
+    "description": "The label of footer link with label=GitHub Issues"
+  },
+  "link.item.label.讨论区": {
+    "message": "Forum de discussion",
+    "description": "The label of footer link with label=讨论区"
+  },
+  "link.item.label.GitHub": {
+    "message": "GitHub",
+    "description": "The label of footer link with label=GitHub linking to https://github.com/go-pipeline/go-pipeline"
+  },
+  "copyright": {
+    "message": "Copyright © 2024 Go Pipeline. Construit avec Docusaurus.",
+    "description": "The footer copyright"
+  }
+}

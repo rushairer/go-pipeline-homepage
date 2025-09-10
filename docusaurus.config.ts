@@ -24,7 +24,7 @@ const config: Config = {
   // 设置网站多语言支持
   i18n: {
     defaultLocale: 'zh',
-    locales: ['zh', 'en'],
+    locales: ['zh', 'en', 'fr'],
     localeConfigs: {
       zh: {
         label: '中文',
@@ -32,6 +32,10 @@ const config: Config = {
       },
       en: {
         label: 'English',
+        direction: 'ltr',
+      },
+      fr: {
+        label: 'Français',
         direction: 'ltr',
       },
     },
