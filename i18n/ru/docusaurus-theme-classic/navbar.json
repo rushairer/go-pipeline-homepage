@@ -1,0 +1,14 @@
+{
+  "title": {
+    "message": "Go Pipeline",
+    "description": "Название сайта в навигационной панели"
+  },
+  "item.label.文档": {
+    "message": "Документация",
+    "description": "Ссылка на документацию в навигационной панели"
+  },
+  "item.label.GitHub": {
+    "message": "GitHub",
+    "description": "Ссылка на GitHub в навигационной панели"
+  }
+}

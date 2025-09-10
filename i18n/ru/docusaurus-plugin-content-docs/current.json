@@ -1,0 +1,38 @@
+{
+  "version.label": {
+    "message": "Далее",
+    "description": "Метка для версии 'Далее' документации"
+  },
+  "sidebar.tutorialSidebar.category.开始使用": {
+    "message": "Начало работы",
+    "description": "Метка для категории 'Начало работы' в боковой панели tutorialSidebar"
+  },
+  "sidebar.tutorialSidebar.category.管道类型": {
+    "message": "Типы пайплайнов",
+    "description": "Метка для категории 'Типы пайплайнов' в боковой панели tutorialSidebar"
+  },
+  "sidebar.tutorialSidebar.category.配置和API": {
+    "message": "Конфигурация и API",
+    "description": "Метка для категории 'Конфигурация и API' в боковой панели tutorialSidebar"
+  },
+  "sidebar.tutorialSidebar.doc.intro": {
+    "message": "Введение в Go Pipeline v2",
+    "description": "Метка для документа intro в боковой панели tutorialSidebar"
+  },
+  "sidebar.tutorialSidebar.doc.standard-pipeline": {
+    "message": "Стандартный пайплайн",
+    "description": "Метка для документа standard-pipeline в боковой панели tutorialSidebar"
+  },
+  "sidebar.tutorialSidebar.doc.deduplication-pipeline": {
+    "message": "Пайплайн дедупликации",
+    "description": "Метка для документа deduplication-pipeline в боковой панели tutorialSidebar"
+  },
+  "sidebar.tutorialSidebar.doc.configuration": {
+    "message": "Руководство по конфигурации",
+    "description": "Метка для документа configuration в боковой панели tutorialSidebar"
+  },
+  "sidebar.tutorialSidebar.doc.api-reference": {
+    "message": "Справочник API",
+    "description": "Метка для документа api-reference в боковой панели tutorialSidebar"
+  }
+}

@@ -1,0 +1,325 @@
+{
+  "theme.ErrorPageContent.title": {
+    "message": "Эта страница упала.",
+    "description": "Заголовок страницы ошибки"
+  },
+  "theme.BackToTopButton.buttonAriaLabel": {
+    "message": "Прокрутить назад к началу",
+    "description": "ARIA метка для кнопки возврата к началу"
+  },
+  "theme.blog.archive.title": {
+    "message": "Архив",
+    "description": "Заголовок страницы архива блога"
+  },
+  "theme.blog.archive.description": {
+    "message": "Архив",
+    "description": "Описание страницы архива блога"
+  },
+  "theme.blog.paginator.navAriaLabel": {
+    "message": "Навигация по страницам списка постов блога",
+    "description": "ARIA метка для навигации по страницам блога"
+  },
+  "theme.blog.paginator.newerEntries": {
+    "message": "Новые записи",
+    "description": "Метка для кнопки перехода к новым записям блога"
+  },
+  "theme.blog.paginator.olderEntries": {
+    "message": "Старые записи",
+    "description": "Метка для кнопки перехода к старым записям блога"
+  },
+  "theme.blog.post.paginator.navAriaLabel": {
+    "message": "Навигация по страницам постов блога",
+    "description": "ARIA метка для навигации по постам блога"
+  },
+  "theme.blog.post.paginator.newerPost": {
+    "message": "Новый пост",
+    "description": "Метка для кнопки перехода к новому посту блога"
+  },
+  "theme.blog.post.paginator.olderPost": {
+    "message": "Старый пост",
+    "description": "Метка для кнопки перехода к старому посту блога"
+  },
+  "theme.blog.post.plurals": {
+    "message": "Один пост|{count} постов",
+    "description": "Множественное число для '{count} постов'"
+  },
+  "theme.blog.tagTitle": {
+    "message": "{nPosts} помечены \"{tagName}\"",
+    "description": "Заголовок страницы тегов блога"
+  },
+  "theme.tags.tagsPageLink": {
+    "message": "Посмотреть все теги",
+    "description": "Ссылка на страницу тегов"
+  },
+  "theme.colorToggle.ariaLabel": {
+    "message": "Переключить между темным и светлым режимом (сейчас {mode})",
+    "description": "ARIA метка для переключателя цветовой темы"
+  },
+  "theme.colorToggle.ariaLabel.mode.dark": {
+    "message": "темный режим",
+    "description": "ARIA метка для темного режима"
+  },
+  "theme.colorToggle.ariaLabel.mode.light": {
+    "message": "светлый режим",
+    "description": "ARIA метка для светлого режима"
+  },
+  "theme.docs.breadcrumbs.navAriaLabel": {
+    "message": "Хлебные крошки",
+    "description": "ARIA метка для навигации хлебных крошек"
+  },
+  "theme.docs.DocCard.categoryDescription": {
+    "message": "{count} элементов",
+    "description": "Описание количества элементов в категории документации"
+  },
+  "theme.docs.paginator.navAriaLabel": {
+    "message": "Навигация по страницам документации",
+    "description": "ARIA метка для навигации по страницам документации"
+  },
+  "theme.docs.paginator.previous": {
+    "message": "Предыдущая",
+    "description": "Метка для кнопки перехода к предыдущей странице документации"
+  },
+  "theme.docs.paginator.next": {
+    "message": "Следующая",
+    "description": "Метка для кнопки перехода к следующей странице документации"
+  },
+  "theme.docs.tagDocListPageTitle.nDocsTagged": {
+    "message": "Один документ помечен|{count} документов помечены",
+    "description": "Множественное число для '{count} документов помечены тегом'"
+  },
+  "theme.docs.tagDocListPageTitle": {
+    "message": "{nDocsTagged} \"{tagName}\"",
+    "description": "Заголовок страницы списка документов по тегу"
+  },
+  "theme.docs.versionBadge.label": {
+    "message": "Версия: {versionLabel}"
+  },
+  "theme.docs.versions.unreleasedVersionLabel": {
+    "message": "Это нереализованная документация для {siteTitle} {versionLabel} версии.",
+    "description": "Метка для нереализованной версии документации"
+  },
+  "theme.docs.versions.unmaintainedVersionLabel": {
+    "message": "Это документация для {siteTitle} {versionLabel}, которая больше не поддерживается активно.",
+    "description": "Метка для неподдерживаемой версии документации"
+  },
+  "theme.docs.versions.latestVersionSuggestionLabel": {
+    "message": "Для актуальной документации смотрите {latestVersionLink} ({versionLabel}).",
+    "description": "Метка предложения последней версии документации"
+  },
+  "theme.docs.versions.latestVersionLinkLabel": {
+    "message": "последняя версия",
+    "description": "Метка ссылки на последнюю версию"
+  },
+  "theme.common.editThisPage": {
+    "message": "Редактировать эту страницу",
+    "description": "Ссылка для редактирования текущей страницы"
+  },
+  "theme.common.headingLinkTitle": {
+    "message": "Прямая ссылка на {heading}",
+    "description": "Заголовок для ссылки на заголовок"
+  },
+  "theme.lastUpdated.atDate": {
+    "message": " на {date}",
+    "description": "Вторая часть предложения 'Последнее обновление {byUser} на {date}'"
+  },
+  "theme.lastUpdated.byUser": {
+    "message": " от {user}",
+    "description": "Первая часть предложения 'Последнее обновление от {user} на {date}'"
+  },
+  "theme.lastUpdated.lastUpdatedAtBy": {
+    "message": "Последнее обновление{byUser}{atDate}",
+    "description": "Полное предложение 'Последнее обновление от {user} на {date}'"
+  },
+  "theme.navbar.mobileVersionsDropdown.label": {
+    "message": "Версии",
+    "description": "Метка для выпадающего списка версий в мобильной навигации"
+  },
+  "theme.NotFound.title": {
+    "message": "Страница не найдена",
+    "description": "Заголовок страницы 404"
+  },
+  "theme.tags.tagsListLabel": {
+    "message": "Теги:",
+    "description": "Метка рядом со списком тегов"
+  },
+  "theme.admonition.caution": {
+    "message": "осторожно",
+    "description": "Заголовок по умолчанию для предупреждения типа 'осторожно'"
+  },
+  "theme.admonition.danger": {
+    "message": "опасность",
+    "description": "Заголовок по умолчанию для предупреждения типа 'опасность'"
+  },
+  "theme.admonition.info": {
+    "message": "информация",
+    "description": "Заголовок по умолчанию для предупреждения типа 'информация'"
+  },
+  "theme.admonition.note": {
+    "message": "примечание",
+    "description": "Заголовок по умолчанию для предупреждения типа 'примечание'"
+  },
+  "theme.admonition.tip": {
+    "message": "совет",
+    "description": "Заголовок по умолчанию для предупреждения типа 'совет'"
+  },
+  "theme.admonition.warning": {
+    "message": "предупреждение",
+    "description": "Заголовок по умолчанию для предупреждения типа 'предупреждение'"
+  },
+  "theme.AnnouncementBar.closeButtonAriaLabel": {
+    "message": "Закрыть",
+    "description": "ARIA метка для кнопки закрытия панели объявлений"
+  },
+  "theme.blog.sidebar.navAriaLabel": {
+    "message": "Навигация по недавним постам блога",
+    "description": "ARIA метка для навигации по недавним постам в боковой панели блога"
+  },
+  "theme.CodeBlock.copied": {
+    "message": "Скопировано",
+    "description": "Сообщение об успешном копировании кода в буфер обмена"
+  },
+  "theme.CodeBlock.copyButtonAriaLabel": {
+    "message": "Скопировать код в буфер обмена",
+    "description": "ARIA метка для кнопки копирования кода"
+  },
+  "theme.CodeBlock.copy": {
+    "message": "Копировать",
+    "description": "Метка кнопки копирования для блока кода"
+  },
+  "theme.CodeBlock.wordWrapToggle": {
+    "message": "Переключить перенос слов",
+    "description": "Заголовок для переключателя переноса слов в блоке кода"
+  },
+  "theme.DocSidebarItem.expandCategoryAriaLabel": {
+    "message": "Развернуть категорию боковой панели '{label}'",
+    "description": "ARIA метка для развертывания категории в боковой панели"
+  },
+  "theme.DocSidebarItem.collapseCategoryAriaLabel": {
+    "message": "Свернуть категорию боковой панели '{label}'",
+    "description": "ARIA метка для сворачивания категории в боковой панели"
+  },
+  "theme.NavBar.navAriaLabel": {
+    "message": "Основная",
+    "description": "ARIA метка для основной навигации"
+  },
+  "theme.navbar.mobileLanguageDropdown.label": {
+    "message": "Языки",
+    "description": "Метка для выпадающего списка языков в мобильной навигации"
+  },
+  "theme.TOCCollapsible.toggleButtonLabel": {
+    "message": "На этой странице",
+    "description": "Метка для переключаемой кнопки оглавления"
+  },
+  "theme.blog.post.readMore": {
+    "message": "Читать далее",
+    "description": "Метка для ссылки 'Читать далее' в постах блога"
+  },
+  "theme.blog.post.readMoreLabel": {
+    "message": "Читать далее о {title}",
+    "description": "ARIA метка для ссылки 'Читать далее' в постах блога"
+  },
+  "theme.blog.post.readingTime.plurals": {
+    "message": "Одна минута чтения|{readingTime} минут чтения",
+    "description": "Множественное число для '{readingTime} минут чтения'"
+  },
+  "theme.docs.breadcrumbs.home": {
+    "message": "Главная страница",
+    "description": "ARIA метка для элемента главной страницы в хлебных крошках"
+  },
+  "theme.docs.sidebar.collapseButtonTitle": {
+    "message": "Свернуть боковую панель",
+    "description": "Заголовок кнопки сворачивания боковой панели"
+  },
+  "theme.docs.sidebar.collapseButtonAriaLabel": {
+    "message": "Свернуть боковую панель",
+    "description": "ARIA метка для кнопки сворачивания боковой панели"
+  },
+  "theme.docs.sidebar.navAriaLabel": {
+    "message": "Навигация по документации боковой панели",
+    "description": "ARIA метка для навигации по документации в боковой панели"
+  },
+  "theme.docs.sidebar.closeSidebarButtonAriaLabel": {
+    "message": "Закрыть навигационную панель",
+    "description": "ARIA метка для кнопки закрытия боковой панели"
+  },
+  "theme.navbar.mobileSidebarSecondaryMenu.backButtonLabel": {
+    "message": "← Назад к главному меню",
+    "description": "Метка для кнопки возврата к главному меню в мобильной боковой панели"
+  },
+  "theme.docs.sidebar.toggleSidebarButtonAriaLabel": {
+    "message": "Переключить навигационную панель",
+    "description": "ARIA метка для кнопки переключения боковой панели"
+  },
+  "homepage.title": {
+    "message": "Высокопроизводительная библиотека обработки пайплайнов Go",
+    "description": "Заголовок главной страницы"
+  },
+  "homepage.description": {
+    "message": "Go Pipeline v2 — это высокопроизводительный фреймворк для пакетной обработки данных на Go, который поддерживает дженерики, безопасность конкурентности и предоставляет два режима: стандартная пакетная обработка и пакетная обработка с дедупликацией.",
+    "description": "Описание главной страницы"
+  },
+  "homepage.getStarted": {
+    "message": "Быстрый старт ⚡️",
+    "description": "Текст кнопки быстрого старта на главной странице"
+  },
+  "homepage.features.generic.title": {
+    "message": "Поддержка дженериков",
+    "description": "Заголовок функции поддержки дженериков"
+  },
+  "homepage.features.generic.description": {
+    "message": "Основан на дженериках Go 1.18+, обеспечивает типобезопасность и лучшую производительность.",
+    "description": "Описание функции поддержки дженериков"
+  },
+  "homepage.features.batch.title": {
+    "message": "Пакетная обработка",
+    "description": "Заголовок функции пакетной обработки"
+  },
+  "homepage.features.batch.description": {
+    "message": "Поддерживает автоматическую пакетную обработку по размеру и временным интервалам, значительно повышая эффективность обработки.",
+    "description": "Описание функции пакетной обработки"
+  },
+  "homepage.features.safety.title": {
+    "message": "Безопасность конкурентности",
+    "description": "Заголовок функции безопасности конкурентности"
+  },
+  "homepage.features.safety.description": {
+    "message": "Встроенный механизм безопасности горутин, поддерживает высококонкурентные сценарии без блокировок.",
+    "description": "Описание функции безопасности конкурентности"
+  },
+  "homepage.tagline": {
+    "message": "Высокопроизводительный фреймворк для пакетной обработки данных на Go, который поддерживает дженерики, безопасность конкурентности и предоставляет два режима: стандартная пакетная обработка и пакетная обработка с дедупликацией.",
+    "description": "Слоган главной страницы"
+  },
+  "homepage.quickStart": {
+    "message": "Быстрый старт - 5 минут ⏱️",
+    "description": "Текст кнопки быстрого старта"
+  },
+  "homepage.title": {
+    "message": "Главная - Go Pipeline",
+    "description": "Заголовок главной страницы"
+  },
+  "homepage.features.generics.title": {
+    "message": "Поддержка дженериков",
+    "description": "Заголовок функции поддержки дженериков"
+  },
+  "homepage.features.generics.description": {
+    "message": "Основан на дженериках Go 1.18+, обеспечивает типобезопасность и лучшую производительность.",
+    "description": "Описание функции поддержки дженериков"
+  },
+  "homepage.features.batch.title": {
+    "message": "Пакетная обработка",
+    "description": "Заголовок функции пакетной обработки"
+  },
+  "homepage.features.batch.description": {
+    "message": "Поддерживает автоматическую пакетную обработку по размеру и временным интервалам, значительно повышая эффективность обработки.",
+    "description": "Описание функции пакетной обработки"
+  },
+  "homepage.features.concurrent.title": {
+    "message": "Безопасность конкурентности",
+    "description": "Заголовок функции безопасности конкурентности"
+  },
+  "homepage.features.concurrent.description": {
+    "message": "Встроенный механизм безопасности горутин, поддерживает высококонкурентные сценарии без блокировок.",
+    "description": "Описание функции безопасности конкурентности"
+  }
+}
