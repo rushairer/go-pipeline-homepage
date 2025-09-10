@@ -4,11 +4,74 @@ sidebar_position: 2
 
 # Standard Pipeline
 
-The Standard Pipeline is the core component of Go Pipeline v2, designed for efficient batch processing of data streams. It provides automatic batching, configurable processing intervals, and built-in error handling.
+StandardPipeline is one of the core components of Go Pipeline v2, providing sequential batch processing functionality for data.
 
-## Basic Usage
+## Overview
 
-### Creating a Standard Pipeline
+Standard pipeline batches input data according to configured batch size and time intervals, suitable for scenarios that need to maintain data order.
+
+## Core Features
+
+- **Sequential Processing**: Data is batch processed in the order it was added
+- **Automatic Batch Processing**: Supports automatic batch processing triggered by size and time intervals
+- **Concurrent Safety**: Built-in goroutine safety mechanism
+- **Error Handling**: Comprehensive error collection and propagation
+
+## Data Flow
+
+```mermaid
+graph TD
+    A[Data Input] --> B[Add to Buffer Channel]
+    B --> C{Is Batch Full?}
+    C -->|Yes| D[Execute Batch Processing]
+    C -->|No| E[Wait for More Data]
+    E --> F{Timer Triggered?}
+    F -->|Yes| G{Is Batch Empty?}
+    G -->|No| D
+    G -->|Yes| E
+    F -->|No| E
+    D --> H[Call Flush Function]
+    H --> I{Any Errors?}
+    I -->|Yes| J[Send to Error Channel]
+    I -->|No| K[Reset Batch]
+    J --> K
+    K --> E
+```
+
+## Creating Standard Pipeline
+
+### Using Default Configuration
+
+```go
+pipeline := gopipeline.NewDefaultStandardPipeline(
+    func(ctx context.Context, batchData []string) error {
+        // Process batch data
+        fmt.Printf("Processing %d items: %v\n", len(batchData), batchData)
+        return nil
+    },
+)
+```
+
+### Using Custom Configuration
+
+```go
+customConfig := gopipeline.PipelineConfig{
+    BufferSize:    200,                    // Buffer size
+    FlushSize:     100,                    // Batch size
+    FlushInterval: time.Millisecond * 100, // Flush interval
+}
+
+pipeline := gopipeline.NewStandardPipeline(customConfig,
+    func(ctx context.Context, batchData []string) error {
+        // Process batch data
+        return processData(batchData)
+    },
+)
+```
+
+## Usage Examples
+
+### Basic Usage
 
 ```go
 package main
@@ -16,371 +79,213 @@ package main
 import (
     "context"
     "fmt"
+    "log"
     "time"
     
-    "github.com/rushairer/go-pipeline/v2"
+    gopipeline "github.com/rushairer/go-pipeline/v2"
 )
 
 func main() {
-    // Create pipeline with default configuration
-    pipeline := gopipeline.NewStandardPipeline(
-        gopipeline.NewPipelineConfig(),
-        func(ctx context.Context, items []string) error {
-            fmt.Printf("Processing batch: %v\n", items)
+    // Create pipeline
+    pipeline := gopipeline.NewDefaultStandardPipeline(
+        func(ctx context.Context, batchData []string) error {
+            fmt.Printf("Batch processing %d items: %v\n", len(batchData), batchData)
+            // Simulate processing time
+            time.Sleep(time.Millisecond * 10)
             return nil
         },
     )
     
-    // Start the pipeline
-    ctx := context.Background()
-    if err := pipeline.Start(ctx); err != nil {
-        panic(err)
-    }
-    defer pipeline.Stop()
-    
-    // Add items
-    pipeline.Add("item1")
-    pipeline.Add("item2")
-    pipeline.Add("item3")
-    
-    // Wait for processing
-    time.Sleep(time.Second)
-}
-```
-
-### Using Custom Configuration
-
-```go
-customConfig := gopipeline.NewPipelineConfig().
-    SetBufferSize(500).
-    SetFlushSize(100).
-    SetFlushInterval(time.Millisecond * 200)
-
-pipeline := gopipeline.NewStandardPipeline(customConfig, processorFunc)
-```
-
-## Processing Function
-
-The processor function is the core of your pipeline logic. It receives a batch of items and processes them:
-
-```go
-func processBatch(ctx context.Context, items []MyDataType) error {
-    // Process the batch
-    for _, item := range items {
-        if err := processItem(item); err != nil {
-            return fmt.Errorf("failed to process item %v: %w", item, err)
-        }
-    }
-    return nil
-}
-```
-
-### Error Handling in Processor
-
-```go
-func processBatchWithErrorHandling(ctx context.Context, items []MyDataType) error {
-    var errors []error
-    
-    for _, item := range items {
-        if err := processItem(item); err != nil {
-            errors = append(errors, fmt.Errorf("item %v: %w", item.ID, err))
-        }
-    }
-    
-    if len(errors) > 0 {
-        return fmt.Errorf("batch processing failed: %v", errors)
-    }
-    
-    return nil
-}
-```
-
-## Pipeline Lifecycle
-
-```mermaid
-graph TD
-    A[Create Pipeline] --> B[Start Pipeline]
-    B --> C[Add Items]
-    C --> D{Buffer Full or Timeout?}
-    D -->|Yes| E[Process Batch]
-    D -->|No| C
-    E --> F{Processing Success?}
-    F -->|Yes| G[Continue]
-    F -->|No| H[Error Handling]
-    H --> G
-    G --> C
-    C --> I[Stop Pipeline]
-    I --> J[Process Remaining Items]
-    J --> K[Cleanup]
-```
-
-## Advanced Usage
-
-### 1. Batch Size Optimization
-
-Adjust batch size based on processing capabilities:
-
-```go
-// For CPU-intensive operations
-cpuIntensiveConfig := gopipeline.NewPipelineConfig().
-    SetFlushSize(10).                     // Smaller batches
-    SetFlushInterval(time.Millisecond * 50)
-
-// For I/O operations
-ioOptimizedConfig := gopipeline.NewPipelineConfig().
-    SetFlushSize(100).                    // Larger batches
-    SetFlushInterval(time.Millisecond * 200)
-```
-
-### 2. Context-aware Processing
-
-Use context for cancellation and timeouts:
-
-```go
-func contextAwareProcessor(ctx context.Context, items []DataItem) error {
-    // Check for cancellation
-    select {
-    case <-ctx.Done():
-        return ctx.Err()
-    default:
-    }
-    
-    // Process with timeout
-    processCtx, cancel := context.WithTimeout(ctx, time.Second*30)
+    ctx, cancel := context.WithTimeout(context.Background(), time.Second*5)
     defer cancel()
     
-    return processItemsWithContext(processCtx, items)
-}
-```
-
-### 3. Metrics and Monitoring
-
-Monitor pipeline performance:
-
-```go
-// Get pipeline statistics
-stats := pipeline.GetStats()
-fmt.Printf("Processed: %d items\n", stats.ProcessedCount)
-fmt.Printf("Error rate: %.2f%%\n", stats.ErrorRate*100)
-fmt.Printf("Average latency: %v\n", stats.AverageLatency)
-fmt.Printf("Throughput: %.2f items/sec\n", stats.Throughput)
-```
-
-### 4. Graceful Shutdown
-
-Implement proper shutdown handling:
-
-```go
-func runPipeline() {
-    pipeline := gopipeline.NewStandardPipeline(config, processor)
-    
-    ctx, cancel := context.WithCancel(context.Background())
-    defer cancel()
-    
-    // Start pipeline
-    if err := pipeline.Start(ctx); err != nil {
-        log.Fatal(err)
-    }
-    
-    // Handle shutdown signals
-    sigChan := make(chan os.Signal, 1)
-    signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
-    
+    // Start async processing
     go func() {
-        <-sigChan
-        log.Println("Shutting down pipeline...")
-        cancel()
+        if err := pipeline.AsyncPerform(ctx); err != nil {
+            log.Printf("Pipeline execution error: %v", err)
+        }
     }()
     
-    // Add items...
+    // Listen for errors
+    errorChan := pipeline.ErrorChan(10)
+    go func() {
+        for err := range errorChan {
+            log.Printf("Processing error: %v", err)
+        }
+    }()
     
-    // Wait for context cancellation
-    <-ctx.Done()
-    
-    // Graceful shutdown
-    pipeline.Stop()
-    log.Println("Pipeline stopped")
-}
-```
-
-## Performance Optimization
-
-### 1. Reasonable Batch Size Settings
-
-```go
-// Adjust batch size based on processing capacity
-optimizedConfig := gopipeline.NewPipelineConfig()
-
-// For fast processing
-if processingTimePerItem < time.Millisecond {
-    optimizedConfig.SetFlushSize(200) // Larger batches
-}
-
-// For slow processing
-if processingTimePerItem > time.Millisecond*10 {
-    optimizedConfig.SetFlushSize(20) // Smaller batches
-}
-```
-
-### 2. Buffer Size Tuning
-
-```go
-// Adjust buffer size based on input rate
-if inputRate > 1000 { // items per second
-    config.SetBufferSize(1000) // Large buffer
-} else {
-    config.SetBufferSize(100)  // Standard buffer
-}
-```
-
-### 3. Processing Interval Optimization
-
-```go
-// Balance between latency and throughput
-if latencyRequirement < time.Millisecond*100 {
-    config.SetFlushInterval(time.Millisecond * 50) // Low latency
-} else {
-    config.SetFlushInterval(time.Millisecond * 200) // Higher throughput
-}
-```
-
-## Common Use Cases
-
-### Database Batch Operations
-
-```go
-func batchInsertProcessor(ctx context.Context, records []Record) error {
-    tx, err := db.BeginTx(ctx, nil)
-    if err != nil {
-        return err
+    // Add data
+    dataChan := pipeline.DataChan()
+    for i := 0; i < 200; i++ {
+        dataChan <- fmt.Sprintf("data-%d", i)
     }
-    defer tx.Rollback()
     
-    stmt, err := tx.PrepareContext(ctx, "INSERT INTO table (col1, col2) VALUES (?, ?)")
-    if err != nil {
-        return err
+    // Close data channel
+    close(dataChan)
+    
+    // Wait for processing to complete
+    time.Sleep(time.Second * 2)
+}
+```
+
+### Database Batch Insert Example
+
+```go
+func batchInsertExample() {
+    // Create database batch insert pipeline
+    pipeline := gopipeline.NewDefaultStandardPipeline(
+        func(ctx context.Context, users []User) error {
+            // Batch insert to database
+            return db.CreateInBatches(users, len(users)).Error
+        },
+    )
+    
+    ctx := context.Background()
+    
+    // Start pipeline
+    go pipeline.AsyncPerform(ctx)
+    
+    // Error handling
+    go func() {
+        for err := range pipeline.ErrorChan(10) {
+            log.Printf("Database insert error: %v", err)
+        }
+    }()
+    
+    // Add user data
+    dataChan := pipeline.DataChan()
+    for i := 0; i < 1000; i++ {
+        user := User{
+            Name:  fmt.Sprintf("user-%d", i),
+            Email: fmt.Sprintf("user%d@example.com", i),
+        }
+        dataChan <- user
     }
-    defer stmt.Close()
     
-    for _, record := range records {
-        if _, err := stmt.ExecContext(ctx, record.Col1, record.Col2); err != nil {
-            return err
+    close(dataChan)
+}
+```
+
+### API Call Batch Processing Example
+
+```go
+func apiCallExample() {
+    pipeline := gopipeline.NewStandardPipeline(
+        gopipeline.PipelineConfig{
+            FlushSize:     20,                     // 20 items per call
+            FlushInterval: time.Millisecond * 200, // 200ms interval
+        },
+        func(ctx context.Context, requests []APIRequest) error {
+            // Batch call API
+            return batchCallAPI(requests)
+        },
+    )
+    
+    // Use pipeline...
+}
+```
+
+## Sync vs Async Execution
+
+### Async Execution (Recommended)
+
+```go
+// Async execution, doesn't block main thread
+go func() {
+    if err := pipeline.AsyncPerform(ctx); err != nil {
+        log.Printf("Pipeline execution error: %v", err)
+    }
+}()
+```
+
+### Sync Execution
+
+```go
+// Sync execution, blocks until completion or cancellation
+if err := pipeline.SyncPerform(ctx); err != nil {
+    log.Printf("Pipeline execution error: %v", err)
+}
+```
+
+## Error Handling
+
+Standard pipeline provides comprehensive error handling mechanism:
+
+```go
+// Create error channel
+errorChan := pipeline.ErrorChan(100) // Buffer size 100
+
+// Listen for errors
+go func() {
+    for err := range errorChan {
+        // Handle errors
+        log.Printf("Batch processing error: %v", err)
+        
+        // Can handle different error types differently
+        switch e := err.(type) {
+        case *DatabaseError:
+            // Database error handling
+        case *NetworkError:
+            // Network error handling
+        default:
+            // Other error handling
         }
     }
-    
-    return tx.Commit()
+}()
+```
+
+## Performance Optimization Recommendations
+
+### 1. Set Reasonable Batch Size
+
+```go
+// Adjust batch size according to processing capacity
+batchSizeConfig := gopipeline.PipelineConfig{
+    BufferSize:    200,                   // Buffer size
+    FlushSize:     100,                   // Larger batches can improve throughput
+    FlushInterval: time.Millisecond * 50, // Standard interval
 }
 ```
 
-### Log Aggregation
+### 2. Adjust Buffer Size
 
 ```go
-func logAggregationProcessor(ctx context.Context, logs []LogEntry) error {
-    // Group logs by level
-    logsByLevel := make(map[string][]LogEntry)
-    for _, log := range logs {
-        logsByLevel[log.Level] = append(logsByLevel[log.Level], log)
-    }
-    
-    // Write to different files based on level
-    for level, levelLogs := range logsByLevel {
-        if err := writeLogsToFile(level, levelLogs); err != nil {
-            return err
-        }
-    }
-    
-    return nil
+// Buffer should be at least 2x batch size
+bufferSizeConfig := gopipeline.PipelineConfig{
+    BufferSize:    200,                   // FlushSize * 2
+    FlushSize:     100,                   // Batch size
+    FlushInterval: time.Millisecond * 50, // Standard interval
 }
 ```
 
-### API Rate Limiting
+### 3. Optimize Flush Interval
 
 ```go
-func rateLimitedAPIProcessor(ctx context.Context, requests []APIRequest) error {
-    // Respect API rate limits
-    rateLimiter := time.NewTicker(time.Second / 10) // 10 requests per second
-    defer rateLimiter.Stop()
-    
-    for _, request := range requests {
-        select {
-        case <-ctx.Done():
-            return ctx.Err()
-        case <-rateLimiter.C:
-            if err := sendAPIRequest(request); err != nil {
-                return err
-            }
-        }
-    }
-    
-    return nil
+// Adjust interval according to latency requirements
+// Low latency configuration
+lowLatencyConfig := gopipeline.PipelineConfig{
+    BufferSize:    100,                   // Moderate buffer
+    FlushSize:     50,                    // Moderate batch
+    FlushInterval: time.Millisecond * 50, // Low latency
 }
-```
 
-## Error Handling Strategies
-
-### 1. Fail Fast
-
-```go
-func failFastProcessor(ctx context.Context, items []DataItem) error {
-    for _, item := range items {
-        if err := processItem(item); err != nil {
-            return err // Stop on first error
-        }
-    }
-    return nil
-}
-```
-
-### 2. Continue on Error
-
-```go
-func continueOnErrorProcessor(ctx context.Context, items []DataItem) error {
-    var lastError error
-    successCount := 0
-    
-    for _, item := range items {
-        if err := processItem(item); err != nil {
-            log.Printf("Failed to process item %v: %v", item.ID, err)
-            lastError = err
-        } else {
-            successCount++
-        }
-    }
-    
-    // Return error only if all items failed
-    if successCount == 0 && lastError != nil {
-        return lastError
-    }
-    
-    return nil
-}
-```
-
-### 3. Partial Success Handling
-
-```go
-func partialSuccessProcessor(ctx context.Context, items []DataItem) error {
-    results := make([]ProcessResult, len(items))
-    
-    for i, item := range items {
-        if err := processItem(item); err != nil {
-            results[i] = ProcessResult{Item: item, Error: err}
-        } else {
-            results[i] = ProcessResult{Item: item, Success: true}
-        }
-    }
-    
-    // Handle results
-    return handleProcessResults(results)
+// High throughput configuration
+highThroughputConfig := gopipeline.PipelineConfig{
+    BufferSize:    400,       // Large buffer
+    FlushSize:     200,       // Large batch
+    FlushInterval: time.Second, // High throughput
 }
 ```
 
 ## Best Practices
 
-1. **Choose appropriate batch sizes**: Balance between throughput and latency
-2. **Implement proper error handling**: Decide on fail-fast vs. continue-on-error strategy
-3. **Monitor performance**: Use built-in metrics to optimize configuration
-4. **Handle context cancellation**: Ensure graceful shutdown
-5. **Test under load**: Validate performance under realistic conditions
-6. **Use connection pooling**: For database operations, use connection pools
-7. **Implement backpressure**: Handle cases where processing can't keep up with input
+1. **Consume Error Channel Promptly**: Must have goroutine consuming error channel, otherwise may cause blocking
+2. **Close Channels Properly**: Use "writer closes" principle to manage channel lifecycle
+3. **Set Reasonable Timeouts**: Use context to control pipeline execution time
+4. **Monitor Performance**: Adjust configuration parameters according to actual scenarios
+
+## Next Steps
+
+- [Deduplication Pipeline](./deduplication-pipeline) - Learn about deduplication batch processing pipeline
+- [Configuration Guide](./configuration) - Detailed configuration parameter instructions
+- [API Reference](./api-reference) - Complete API documentation

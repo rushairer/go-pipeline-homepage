@@ -2,40 +2,69 @@
 sidebar_position: 1
 ---
 
-# Go Pipeline
+# Go Pipeline v2 Introduction
 
-**Go Pipeline** is a high-performance, production-ready pipeline processing library for Go, designed to handle batch data processing efficiently with built-in error handling and monitoring capabilities.
+Go Pipeline v2 is a high-performance Go batch processing pipeline framework that supports generics, concurrent safety, and provides two modes: standard batch processing and deduplication batch processing.
 
-## ✨ Key Features
+## 🚀 Core Features
 
-- 🚀 **High Performance**: Optimized batch processing with configurable buffer sizes
-- 🛡️ **Error Handling**: Built-in retry mechanisms and error recovery
-- 📊 **Monitoring**: Real-time metrics and performance monitoring
-- 🔧 **Easy to Use**: Simple API with sensible defaults
-- 🎯 **Type Safe**: Full generic type support
-- 🔄 **Flexible**: Support for standard and deduplication pipelines
+- **Generic Support**: Based on Go 1.18+ generics, type-safe
+- **Batch Processing Mechanism**: Supports automatic batch processing by size and time interval
+- **Concurrent Safety**: Built-in goroutine safety mechanism
+- **Flexible Configuration**: Customizable buffer size, batch size, and flush interval
+- **Error Handling**: Comprehensive error handling and propagation mechanism
+- **Two Modes**: Standard batch processing and deduplication batch processing
+- **Sync/Async**: Supports both synchronous and asynchronous execution modes
+- **Go Conventions**: Adopts the "writer closes" channel management principle
 
-## 🏗️ Architecture
+## 📋 System Requirements
 
-```mermaid
-graph LR
-    A[Data Input] --> B[Buffer]
-    B --> C[Batch Processing]
-    C --> D[Error Handling]
-    D --> E[Output]
-    D --> F[Retry Queue]
-    F --> C
-```
+- Go 1.18+ (generics support)
+- Supports Linux, macOS, Windows
 
 ## 📦 Installation
 
 ```bash
-go get github.com/rushairer/go-pipeline/v2
+go get github.com/rushairer/go-pipeline/v2@latest
 ```
 
-## 🚀 Quick Start
+## 🏗️ Architecture Design
 
-### Basic Usage
+```
+┌─────────────────┐    ┌──────────────────┐    ┌─────────────────┐
+│   Data Input    │───▶│   Buffer Channel │───▶│  Batch Processor│
+└─────────────────┘    └──────────────────┘    └─────────────────┘
+                                │                        │
+                                ▼                        ▼
+                       ┌──────────────────┐    ┌─────────────────┐
+                       │   Timer Ticker   │    │   Flush Handler │
+                       └──────────────────┘    └─────────────────┘
+                                │                        │
+                                └────────┬───────────────┘
+                                         ▼
+                                ┌─────────────────┐
+                                │  Error Channel  │
+                                └─────────────────┘
+```
+
+## 📦 Core Components
+
+### Interface Definitions
+
+- **`PipelineChannel[T]`**: Defines pipeline channel access interface
+- **`Performer`**: Defines interface for executing pipeline operations
+- **`DataProcessor[T]`**: Defines core interface for batch processing data
+- **`Pipeline[T]`**: Combines all pipeline functionality into a universal interface
+
+### Implementation Types
+
+- **`StandardPipeline[T]`**: Standard batch processing pipeline, data is batch processed in order
+- **`DeduplicationPipeline[T]`**: Deduplication batch processing pipeline, deduplicates based on unique keys
+- **`PipelineImpl[T]`**: Generic pipeline implementation, provides basic functionality
+
+## 💡 Quick Start
+
+### Standard Pipeline Example
 
 ```go
 package main
@@ -43,95 +72,74 @@ package main
 import (
     "context"
     "fmt"
+    "log"
     "time"
     
-    "github.com/rushairer/go-pipeline/v2"
+    gopipeline "github.com/rushairer/go-pipeline/v2"
 )
 
 func main() {
-    // Create pipeline with default configuration
-    pipeline := gopipeline.NewStandardPipeline(
-        gopipeline.NewPipelineConfig(),
-        func(ctx context.Context, items []string) error {
-            fmt.Printf("Processing batch: %v\n", items)
+    // Create standard pipeline
+    pipeline := gopipeline.NewDefaultStandardPipeline(
+        func(ctx context.Context, batchData []int) error {
+            fmt.Printf("Processing batch data: %v\n", batchData)
             return nil
         },
     )
     
-    // Start the pipeline
-    ctx := context.Background()
-    if err := pipeline.Start(ctx); err != nil {
-        panic(err)
+    ctx, cancel := context.WithTimeout(context.Background(), time.Second*10)
+    defer cancel()
+    
+    // Start async processing
+    go func() {
+        if err := pipeline.AsyncPerform(ctx); err != nil {
+            log.Printf("Pipeline execution error: %v", err)
+        }
+    }()
+    
+    // Listen for errors
+    errorChan := pipeline.ErrorChan(10)
+    go func() {
+        for err := range errorChan {
+            log.Printf("Processing error: %v", err)
+        }
+    }()
+    
+    // Add data
+    dataChan := pipeline.DataChan()
+    for i := 0; i < 100; i++ {
+        dataChan <- i
     }
-    defer pipeline.Stop()
     
-    // Add items to pipeline
-    pipeline.Add("item1")
-    pipeline.Add("item2")
-    pipeline.Add("item3")
+    // Close data channel
+    close(dataChan)
     
-    // Wait for processing
-    time.Sleep(time.Second)
+    // Wait for processing to complete
+    time.Sleep(time.Second * 2)
 }
 ```
 
-### Custom Configuration
+## 📋 Configuration Parameters
 
 ```go
-config := gopipeline.NewPipelineConfig().
-    SetBufferSize(1000).
-    SetFlushSize(100).
-    SetFlushInterval(time.Second * 2)
-
-pipeline := gopipeline.NewStandardPipeline(config, processorFunc)
+type PipelineConfig struct {
+    BufferSize    uint32        // Buffer channel capacity (default: 100)
+    FlushSize     uint32        // Maximum capacity of batch processing data (default: 50)
+    FlushInterval time.Duration // Time interval for timed refresh (default: 50ms)
+}
 ```
 
-## 📚 Documentation
+### 🎯 Performance-Optimized Default Values
 
-- [Configuration](./configuration.md) - Detailed configuration options
-- [Standard Pipeline](./standard-pipeline.md) - Basic pipeline usage
-- [Deduplication Pipeline](./deduplication-pipeline.md) - Advanced deduplication features
-- [API Reference](./api-reference.md) - Complete API documentation
+Based on performance benchmarks, v2 version adopts optimized default configuration:
 
-## 🎯 Use Cases
+- **BufferSize: 100** - Buffer size, should be >= FlushSize * 2 to avoid blocking
+- **FlushSize: 50** - Batch size, performance tests show around 50 is optimal
+- **FlushInterval: 50ms** - Flush interval, balances latency and throughput
 
-### Database Batch Operations
-Perfect for batch inserting, updating, or deleting database records with optimal performance.
+## Next Steps
 
-### Log Aggregation
-Collect and batch process log entries before sending to storage or analysis systems.
-
-### API Rate Limiting
-Batch API calls to respect rate limits while maintaining high throughput.
-
-### Real-time Data Processing
-Process streaming data in configurable batches with low latency.
-
-## 🔧 Performance
-
-Go Pipeline v2 delivers exceptional performance:
-
-- **Throughput**: 100K+ items/second
-- **Latency**: Sub-millisecond processing
-- **Memory**: Efficient memory usage with configurable buffers
-- **Concurrency**: Thread-safe operations
-
-## 📈 Monitoring
-
-Built-in metrics provide insights into pipeline performance:
-
-```go
-stats := pipeline.GetStats()
-fmt.Printf("Processed: %d, Errors: %d, Rate: %.2f/s", 
-    stats.ProcessedCount, 
-    stats.ErrorCount, 
-    stats.ProcessingRate)
-```
-
-## 🤝 Contributing
-
-We welcome contributions! Please see our [Contributing Guide](https://github.com/rushairer/go-pipeline/blob/main/CONTRIBUTING.md) for details.
-
-## 📄 License
-
-This project is licensed under the MIT License - see the [LICENSE](https://github.com/rushairer/go-pipeline/blob/main/LICENSE) file for details.
+- [Standard Pipeline](./standard-pipeline) - Learn about using standard batch processing pipeline
+- [Deduplication Pipeline](./deduplication-pipeline) - Learn about using deduplication batch processing pipeline
+- [Configuration Guide](./configuration) - Detailed configuration parameter instructions
+- [API Reference](./api-reference) - Complete API documentation

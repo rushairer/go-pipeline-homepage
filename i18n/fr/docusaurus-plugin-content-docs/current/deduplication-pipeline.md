@@ -2,436 +2,366 @@
 sidebar_position: 3
 ---
 
-# Pipeline de Déduplication
+# Pipeline de déduplication
 
-Le pipeline de déduplication est un type spécialisé de pipeline qui élimine automatiquement les éléments en double avant le traitement. Il est idéal pour les scénarios où les données peuvent contenir des doublons et où seuls les éléments uniques doivent être traités.
+DeduplicationPipeline est un autre composant principal de Go Pipeline v2, fournissant une fonctionnalité de traitement par lots avec déduplication basée sur des clés uniques.
 
-## Utilisation de base
+## Vue d'ensemble
 
-### Création avec fonction de clé simple
+Le pipeline de déduplication supprime automatiquement les données dupliquées pendant le traitement par lots, basé sur des fonctions de clé unique définies par l'utilisateur pour déterminer si les données sont dupliquées. Adapté aux scénarios de données qui nécessitent un traitement de déduplication.
+
+## Fonctionnalités principales
+
+- **Déduplication automatique** : Supprime automatiquement les données dupliquées basées sur des clés uniques
+- **Fonctions de clé flexibles** : Prend en charge la logique personnalisée de génération de clés uniques
+- **Mécanisme de traitement par lots** : Prend en charge le traitement automatique par lots déclenché par la taille et les intervalles de temps
+- **Sécurité concurrentielle** : Mécanisme de sécurité goroutine intégré
+- **Gestion d'erreurs** : Collecte et propagation d'erreurs complètes
+
+## Flux de données
+
+```mermaid
+graph TD
+    A[Entrée de données] --> B[Obtenir la clé unique]
+    B --> C[Ajouter au conteneur Map]
+    C --> D{Le lot est-il plein ?}
+    D -->|Oui| E[Exécuter le traitement par lots avec déduplication]
+    D -->|Non| F[Attendre plus de données]
+    F --> G{Timer déclenché ?}
+    G -->|Oui| H{Le lot est-il vide ?}
+    H -->|Non| E
+    H -->|Oui| F
+    G -->|Non| F
+    E --> I[Appeler la fonction de vidage avec déduplication]
+    I --> J{Des erreurs ?}
+    J -->|Oui| K[Envoyer au canal d'erreur]
+    J -->|Non| L[Réinitialiser le lot]
+    K --> L
+    L --> F
+```
+
+## Création d'un pipeline de déduplication
+
+### Utilisation de la configuration par défaut
+
+```go
+pipeline := gopipeline.NewDefaultDeduplicationPipeline(
+    // Fonction de clé unique
+    func(data User) string {
+        return data.Email // Utiliser l'email comme clé unique
+    },
+    // Fonction de traitement par lots
+    func(ctx context.Context, batchData []User) error {
+        fmt.Printf("Traitement de %d utilisateurs dédupliqués\n", len(batchData))
+        return nil
+    },
+)
+```
+
+### Utilisation d'une configuration personnalisée
+
+```go
+deduplicationConfig := gopipeline.PipelineConfig{
+    BufferSize:    200,                    // Taille du tampon
+    FlushSize:     50,                     // Taille du lot
+    FlushInterval: time.Millisecond * 100, // Intervalle de vidage
+}
+
+pipeline := gopipeline.NewDeduplicationPipeline(deduplicationConfig,
+    // Fonction de clé unique
+    func(data Product) string {
+        return fmt.Sprintf("%s-%s", data.SKU, data.Version)
+    },
+    // Fonction de traitement par lots
+    func(ctx context.Context, batchData []Product) error {
+        return processProducts(batchData)
+    },
+)
+```
+
+## Exemples d'utilisation
+
+### Exemple de déduplication de données utilisateur
 
 ```go
 package main
 
 import (
+    "context"
     "fmt"
-    "github.com/rushairer/go-pipeline/v2"
-)
-
-func main() {
-    // Créer un pipeline de déduplication
-    pipeline := gopipeline.NewDeduplicationPipeline[int](
-        func(items []int) error {
-            fmt.Printf("Traitement des éléments uniques : %v\n", items)
-            return nil
-        },
-        func(item int) string {
-            // Fonction de génération de clé pour la déduplication
-            return fmt.Sprintf("key_%d", item)
-        },
-    )
+    "log"
+    "time"
     
-    // Ajouter des données (avec doublons)
-    pipeline.Add(1)
-    pipeline.Add(2)
-    pipeline.Add(1) // Doublon - sera ignoré
-    pipeline.Add(3)
-    pipeline.Add(2) // Doublon - sera ignoré
-    
-    // Fermer et attendre
-    pipeline.Close()
-    pipeline.Wait()
-    // Sortie : Traitement des éléments uniques : [1 2 3]
-}
-```
-
-### Utilisation avec configuration personnalisée
-
-```go
-config := gopipeline.NewPipelineConfig().
-    SetFlushSize(50).
-    SetFlushInterval(2 * time.Second).
-    SetMaxWorkers(2).
-    SetChannelSize(200)
-
-pipeline := gopipeline.NewDeduplicationPipelineWithConfig[string](
-    func(items []string) error {
-        fmt.Printf("Traitement de %d chaînes uniques\n", len(items))
-        return nil
-    },
-    func(item string) string {
-        // Utiliser la chaîne elle-même comme clé
-        return item
-    },
-    config,
+    gopipeline "github.com/rushairer/go-pipeline/v2"
 )
-```
 
-## Stratégies de déduplication
-
-### 1. Déduplication par valeur
-
-```go
-// Pour les types simples, utiliser la valeur comme clé
-pipeline := gopipeline.NewDeduplicationPipeline[string](
-    processor,
-    func(item string) string {
-        return item // La chaîne elle-même est la clé
-    },
-)
-```
-
-### 2. Déduplication par champ
-
-```go
 type User struct {
     ID    int
     Name  string
     Email string
 }
 
-// Déduplication par ID utilisateur
-pipeline := gopipeline.NewDeduplicationPipeline[User](
-    func(users []User) error {
-        // Traiter les utilisateurs uniques
-        return processUsers(users)
-    },
-    func(user User) string {
-        return fmt.Sprintf("user_%d", user.ID)
-    },
-)
+func main() {
+    // Créer un pipeline de déduplication, dédupliquer basé sur l'email
+    pipeline := gopipeline.NewDefaultDeduplicationPipeline(
+        func(user User) string {
+            return user.Email // Email comme clé unique
+        },
+        func(ctx context.Context, users []User) error {
+            fmt.Printf("Traitement par lots de %d utilisateurs dédupliqués :\n", len(users))
+            for _, user := range users {
+                fmt.Printf("  - %s (%s)\n", user.Name, user.Email)
+            }
+            return nil
+        },
+    )
+    
+    ctx, cancel := context.WithTimeout(context.Background(), time.Second*5)
+    defer cancel()
+    
+    // Démarrer le traitement asynchrone
+    go func() {
+        if err := pipeline.AsyncPerform(ctx); err != nil {
+            log.Printf("Erreur d'exécution du pipeline : %v", err)
+        }
+    }()
+    
+    // Écouter les erreurs
+    errorChan := pipeline.ErrorChan(10)
+    go func() {
+        for err := range errorChan {
+            log.Printf("Erreur de traitement : %v", err)
+        }
+    }()
+    
+    // Ajouter des données (incluant des emails dupliqués)
+    dataChan := pipeline.DataChan()
+    users := []User{
+        {ID: 1, Name: "Alice", Email: "alice@example.com"},
+        {ID: 2, Name: "Bob", Email: "bob@example.com"},
+        {ID: 3, Name: "Alice Updated", Email: "alice@example.com"}, // Email dupliqué
+        {ID: 4, Name: "Charlie", Email: "charlie@example.com"},
+        {ID: 5, Name: "Bob Updated", Email: "bob@example.com"},     // Email dupliqué
+    }
+    
+    for _, user := range users {
+        dataChan <- user
+    }
+    
+    // Fermer le canal de données
+    close(dataChan)
+    
+    // Attendre la fin du traitement
+    time.Sleep(time.Second * 2)
+}
 ```
 
-### 3. Déduplication par champs multiples
+### Exemple de déduplication de données produit
 
 ```go
-type Event struct {
-    UserID    int
-    EventType string
-    Timestamp time.Time
+type Product struct {
+    SKU     string
+    Name    string
+    Version string
+    Price   float64
 }
 
-// Déduplication par combinaison UserID + EventType
-pipeline := gopipeline.NewDeduplicationPipeline[Event](
-    processor,
-    func(event Event) string {
-        return fmt.Sprintf("%d_%s", event.UserID, event.EventType)
-    },
-)
+func productDeduplicationExample() {
+    // Dédupliquer basé sur la combinaison SKU+Version
+    pipeline := gopipeline.NewDefaultDeduplicationPipeline(
+        func(product Product) string {
+            return fmt.Sprintf("%s-%s", product.SKU, product.Version)
+        },
+        func(ctx context.Context, products []Product) error {
+            // Mise à jour par lots des informations produit
+            return updateProducts(products)
+        },
+    )
+    
+    // Utiliser le pipeline...
+}
 ```
 
-### 4. Déduplication par hash
+### Exemple de déduplication de logs
+
+```go
+type LogEntry struct {
+    Timestamp time.Time
+    Level     string
+    Message   string
+    Source    string
+}
+
+func logDeduplicationExample() {
+    // Dédupliquer basé sur le contenu du message et la source
+    pipeline := gopipeline.NewDefaultDeduplicationPipeline(
+        func(log LogEntry) string {
+            return fmt.Sprintf("%s-%s", log.Message, log.Source)
+        },
+        func(ctx context.Context, logs []LogEntry) error {
+            // Écriture par lots des logs
+            return writeLogsToStorage(logs)
+        },
+    )
+    
+    // Utiliser le pipeline...
+}
+```
+
+## Conception de fonction de clé unique
+
+### Champ simple comme clé
+
+```go
+// Utiliser un seul champ
+func(user User) string {
+    return user.Email
+}
+```
+
+### Champs composites comme clé
+
+```go
+// Utiliser une combinaison de plusieurs champs
+func(order Order) string {
+    return fmt.Sprintf("%s-%s-%d", 
+        order.CustomerID, 
+        order.ProductID, 
+        order.Timestamp.Unix())
+}
+```
+
+### Clé de logique complexe
+
+```go
+// Utiliser une logique complexe pour générer la clé
+func(event Event) string {
+    // Traitement de normalisation
+    normalized := strings.ToLower(strings.TrimSpace(event.Name))
+    return fmt.Sprintf("%s-%s", normalized, event.Category)
+}
+```
+
+### Clé de hachage
 
 ```go
 import (
     "crypto/md5"
-    "encoding/json"
+    "fmt"
 )
 
-// Déduplication par hash du contenu complet
-pipeline := gopipeline.NewDeduplicationPipeline[ComplexStruct](
-    processor,
-    func(item ComplexStruct) string {
-        data, _ := json.Marshal(item)
-        hash := md5.Sum(data)
-        return fmt.Sprintf("%x", hash)
-    },
-)
-```
-
-## Gestion de la mémoire
-
-Le pipeline de déduplication utilise une map pour stocker les données, l'utilisation mémoire augmente avec la taille des lots.
-
-### Configuration pour économiser la mémoire
-
-```go
-// Des lots plus petits peuvent réduire l'utilisation mémoire
-memoryEfficientConfig := gopipeline.NewPipelineConfig().
-    SetFlushSize(20).                     // Lots plus petits
-    SetFlushInterval(500 * time.Millisecond). // Vidage plus fréquent
-    SetChannelSize(50)                    // Buffer plus petit
-```
-
-### Surveillance de l'utilisation mémoire
-
-```go
-pipeline := gopipeline.NewDeduplicationPipeline[int](
-    func(items []int) error {
-        // Obtenir les métriques avant traitement
-        metrics := pipeline.GetMetrics()
-        fmt.Printf("Éléments en attente : %d\n", metrics.PendingCount)
-        
-        return processItems(items)
-    },
-    keyFunc,
-)
-```
-
-## Cas d'usage avancés
-
-### 1. Déduplication d'événements
-
-```go
-type ClickEvent struct {
-    UserID    string
-    PageURL   string
-    Timestamp time.Time
-}
-
-// Déduplication des clics dans une fenêtre de temps
-pipeline := gopipeline.NewDeduplicationPipeline[ClickEvent](
-    func(events []ClickEvent) error {
-        // Traiter les événements de clic uniques
-        return analyticsService.ProcessClicks(events)
-    },
-    func(event ClickEvent) string {
-        // Déduplication par utilisateur + page (ignorer le timestamp)
-        return fmt.Sprintf("%s_%s", event.UserID, event.PageURL)
-    },
-)
-```
-
-### 2. Déduplication de données de capteurs
-
-```go
-type SensorReading struct {
-    SensorID string
-    Value    float64
-    Location string
-}
-
-// Déduplication par capteur et localisation
-pipeline := gopipeline.NewDeduplicationPipeline[SensorReading](
-    func(readings []SensorReading) error {
-        return storageService.SaveReadings(readings)
-    },
-    func(reading SensorReading) string {
-        return fmt.Sprintf("%s_%s", reading.SensorID, reading.Location)
-    },
-)
-```
-
-### 3. Déduplication d'API requests
-
-```go
-type APIRequest struct {
-    Method   string
-    URL      string
-    UserID   string
-    Params   map[string]string
-}
-
-// Déduplication des requêtes identiques
-pipeline := gopipeline.NewDeduplicationPipeline[APIRequest](
-    func(requests []APIRequest) error {
-        return apiGateway.ProcessRequests(requests)
-    },
-    func(req APIRequest) string {
-        // Créer une clé basée sur la méthode, URL et paramètres
-        paramsStr, _ := json.Marshal(req.Params)
-        return fmt.Sprintf("%s_%s_%s_%s", req.Method, req.URL, req.UserID, paramsStr)
-    },
-)
-```
-
-## Optimisation des performances
-
-### 1. Optimisation de la fonction de clé
-
-```go
-// ❌ Inefficace - sérialisation JSON coûteuse
-func slowKeyFunc(item ComplexStruct) string {
-    data, _ := json.Marshal(item)
-    return string(data)
-}
-
-// ✅ Efficace - concaténation de champs spécifiques
-func fastKeyFunc(item ComplexStruct) string {
-    return fmt.Sprintf("%d_%s_%d", item.ID, item.Type, item.Version)
+func(data ComplexData) string {
+    // Générer une clé de hachage pour des données complexes
+    content := fmt.Sprintf("%v", data)
+    hash := md5.Sum([]byte(content))
+    return fmt.Sprintf("%x", hash)
 }
 ```
 
-### 2. Configuration pour haute performance
+## Stratégie de déduplication
+
+### Conserver les dernières données
+
+Le pipeline de déduplication conserve les dernières données ajoutées par défaut :
 
 ```go
-highPerfConfig := gopipeline.NewPipelineConfig().
-    SetFlushSize(100).                    // Lots plus importants
-    SetFlushInterval(1 * time.Second).    // Intervalle plus long
-    SetMaxWorkers(runtime.NumCPU()).      // Utilisation complète du CPU
-    SetChannelSize(500)                   // Buffer plus important
+// S'il y a des clés dupliquées, les données ajoutées plus tard écraseront les données ajoutées plus tôt
+dataChan <- User{ID: 1, Name: "Alice", Email: "alice@example.com"}
+dataChan <- User{ID: 2, Name: "Alice Updated", Email: "alice@example.com"} // Ceci sera conservé
 ```
 
-### 3. Gestion des pics de charge
+### Logique de déduplication personnalisée
+
+Si une logique de déduplication plus complexe est nécessaire, elle peut être implémentée dans la fonction de traitement par lots :
 
 ```go
-// Configuration pour gérer les pics de données
-burstConfig := gopipeline.NewPipelineConfig().
-    SetFlushSize(200).
-    SetChannelSize(2000).  // Buffer important pour absorber les pics
-    SetMaxWorkers(4)
-```
-
-## Surveillance et métriques
-
-### Métriques spécifiques à la déduplication
-
-```go
-pipeline := gopipeline.NewDeduplicationPipeline[int](
-    func(items []int) error {
-        metrics := pipeline.GetMetrics()
-        
-        // Métriques standard
-        fmt.Printf("Éléments traités : %d\n", metrics.ProcessedCount)
-        fmt.Printf("Lots traités : %d\n", metrics.BatchCount)
-        
-        // Calculer le taux de déduplication
-        totalAdded := metrics.ProcessedCount + metrics.DroppedCount
-        deduplicationRate := float64(metrics.DroppedCount) / float64(totalAdded) * 100
-        fmt.Printf("Taux de déduplication : %.2f%%\n", deduplicationRate)
-        
-        return processItems(items)
-    },
-    keyFunc,
-)
-```
-
-### Logging détaillé
-
-```go
-pipeline := gopipeline.NewDeduplicationPipeline[string](
-    func(items []string) error {
-        log.Printf("Traitement de %d éléments uniques", len(items))
-        for i, item := range items {
-            log.Printf("  %d: %s", i+1, item)
+func(ctx context.Context, users []User) error {
+    // Logique de déduplication personnalisée : conserver l'utilisateur avec le plus petit ID
+    userMap := make(map[string]User)
+    for _, user := range users {
+        if existing, exists := userMap[user.Email]; !exists || user.ID < existing.ID {
+            userMap[user.Email] = user
         }
-        return nil
-    },
-    func(item string) string {
-        key := generateKey(item)
-        log.Printf("Élément '%s' -> clé '%s'", item, key)
-        return key
-    },
-)
-```
-
-## Tests et validation
-
-### Test de déduplication
-
-```go
-func TestDeduplication(t *testing.T) {
-    var processedItems []int
-    var mu sync.Mutex
-    
-    pipeline := gopipeline.NewDeduplicationPipeline[int](
-        func(items []int) error {
-            mu.Lock()
-            defer mu.Unlock()
-            processedItems = append(processedItems, items...)
-            return nil
-        },
-        func(item int) string {
-            return fmt.Sprintf("key_%d", item)
-        },
-    )
-    
-    // Ajouter des données avec doublons
-    testData := []int{1, 2, 1, 3, 2, 4, 1}
-    for _, item := range testData {
-        pipeline.Add(item)
     }
     
-    pipeline.Close()
-    pipeline.Wait()
+    // Reconvertir en slice
+    deduplicatedUsers := make([]User, 0, len(userMap))
+    for _, user := range userMap {
+        deduplicatedUsers = append(deduplicatedUsers, user)
+    }
     
-    // Vérifier que seuls les éléments uniques sont traités
-    expected := []int{1, 2, 3, 4}
-    sort.Ints(processedItems)
-    assert.Equal(t, expected, processedItems)
+    return processUsers(deduplicatedUsers)
 }
 ```
 
-### Test de performance
+## Considérations de performance
+
+### Utilisation mémoire
+
+Le pipeline de déduplication utilise une map pour stocker les données, l'utilisation mémoire est liée à la taille du lot :
 
 ```go
-func BenchmarkDeduplication(b *testing.B) {
-    pipeline := gopipeline.NewDeduplicationPipeline[int](
-        func(items []int) error {
-            return nil // Traitement vide pour le benchmark
-        },
-        func(item int) string {
-            return fmt.Sprintf("key_%d", item%1000) // 1000 clés uniques
-        },
-    )
-    
-    b.ResetTimer()
-    for i := 0; i < b.N; i++ {
-        pipeline.Add(i)
-    }
-    
-    pipeline.Close()
-    pipeline.Wait()
+// Une taille de lot plus petite peut réduire l'utilisation mémoire
+configOptimiseMemoire := gopipeline.PipelineConfig{
+    BufferSize:    200,                   // Taille du tampon
+    FlushSize:     100,                   // Stocker au maximum 100 éléments uniques
+    FlushInterval: time.Millisecond * 50, // Intervalle de vidage
 }
 ```
 
-## Bonnes pratiques
+### Performance de la fonction de clé
 
-### 1. Conception de la fonction de clé
-
-- **Unique** : Assurez-vous que la clé identifie uniquement l'élément
-- **Efficace** : Évitez les opérations coûteuses dans la génération de clé
-- **Stable** : La même entrée doit toujours produire la même clé
-- **Courte** : Les clés plus courtes utilisent moins de mémoire
-
-### 2. Gestion de la mémoire
+S'assurer que la fonction de clé unique est efficace :
 
 ```go
-// Surveiller l'utilisation mémoire en production
+// Bonne pratique : accès simple aux champs
+func(user User) string {
+    return user.ID
+}
+
+// Éviter : calculs complexes
+func(user User) string {
+    // Éviter les calculs complexes dans la fonction de clé
+    return expensiveCalculation(user)
+}
+```
+
+## Gestion d'erreurs
+
+```go
+// Écouter les erreurs
+errorChan := pipeline.ErrorChan(10)
 go func() {
-    ticker := time.NewTicker(30 * time.Second)
-    defer ticker.Stop()
-    
-    for range ticker.C {
-        var m runtime.MemStats
-        runtime.ReadMemStats(&m)
-        log.Printf("Utilisation mémoire : %d KB", m.Alloc/1024)
+    for err := range errorChan {
+        log.Printf("Erreur du pipeline de déduplication : %v", err)
+        
+        // Peut gérer basé sur le type d'erreur
+        if isRetryableError(err) {
+            // Logique de retry
+        }
     }
 }()
 ```
 
-### 3. Configuration adaptative
+## Meilleures pratiques
 
-```go
-func createAdaptiveConfig(expectedDuplicateRate float64) *gopipeline.PipelineConfig {
-    if expectedDuplicateRate > 0.5 {
-        // Taux de doublons élevé - lots plus petits
-        return gopipeline.NewPipelineConfig().
-            SetFlushSize(30).
-            SetFlushInterval(500 * time.Millisecond)
-    }
-    // Taux de doublons faible - lots plus importants
-    return gopipeline.NewPipelineConfig().
-        SetFlushSize(100).
-        SetFlushInterval(2 * time.Second)
-}
-```
+1. **Choisir une clé unique appropriée** : S'assurer que la clé peut identifier avec précision l'unicité des données
+2. **La fonction de clé devrait être efficace** : Éviter les calculs complexes dans la fonction de clé
+3. **Surveiller l'utilisation mémoire** : De gros lots peuvent causer une utilisation mémoire élevée
+4. **Définir une taille de lot raisonnable** : Équilibrer l'utilisation mémoire et l'efficacité de traitement
+5. **Consommer rapidement le canal d'erreur** : Prévenir le blocage du canal d'erreur
 
-## Dépannage
+## Comparaison avec le pipeline standard
 
-### Problèmes courants
+| Fonctionnalité | Pipeline standard | Pipeline de déduplication |
+|----------------|-------------------|---------------------------|
+| Ordre des données | Maintient l'ordre original | Aucune garantie d'ordre |
+| Utilisation mémoire | Plus faible | Plus élevée (besoin de stocker la map) |
+| Vitesse de traitement | Plus rapide | Plus lente (besoin de calcul de déduplication) |
+| Cas d'usage | Traitement par lots général | Scénarios nécessitant une déduplication |
 
-1. **Utilisation mémoire élevée** : Réduire `FlushSize` et `ChannelSize`
-2. **Déduplication inefficace** : Vérifier la logique de génération de clé
-3. **Performance lente** : Optimiser la fonction de génération de clé
-4. **Fuite mémoire** : S'assurer que `Close()` et `Wait()` sont appelés
+## Étapes suivantes
 
-### Débogage
-
-```go
-// Activer le logging de débogage
-pipeline := gopipeline.NewDeduplicationPipelineWithConfig[int](
-    processor,
-    keyFunc,
-    gopipeline.NewPipelineConfig().SetDebug(true),
-)
+- [Guide de configuration](./configuration) - Instructions détaillées des paramètres de configuration
+- [Référence API](./api-reference) - Documentation API complète
+- [Pipeline standard](./standard-pipeline) - Guide d'utilisation du pipeline standard

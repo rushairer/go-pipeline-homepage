@@ -4,539 +4,451 @@ sidebar_position: 5
 
 # Référence API
 
-Documentation complète de l'API Go Pipeline v2, incluant tous les types, méthodes et interfaces disponibles.
+Ce document fournit une référence API complète pour Go Pipeline v2.
 
-## Types principaux
+## Interfaces principales
 
-### PipelineConfig
+### Pipeline[T any]
 
-Structure de configuration pour personnaliser le comportement du pipeline.
-
-```go
-type PipelineConfig struct {
-    FlushSize     int           // Taille du lot (par défaut : 50)
-    FlushInterval time.Duration // Intervalle de vidage (par défaut : 1s)
-    MaxWorkers    int           // Nombre de workers (par défaut : runtime.NumCPU())
-    ChannelSize   int           // Taille du canal (par défaut : 100)
-}
-```
-
-**Méthodes** :
-
-#### NewPipelineConfig()
-
-```go
-func NewPipelineConfig() *PipelineConfig
-```
-
-Crée une nouvelle configuration avec les valeurs par défaut.
-
-**Exemple d'utilisation** :
-```go
-config := gopipeline.NewPipelineConfig()
-```
-
-#### SetFlushSize(size int)
-
-```go
-func (c *PipelineConfig) SetFlushSize(size int) *PipelineConfig
-```
-
-Définit la taille du lot et retourne la configuration pour le chaînage.
-
-**Paramètres** :
-- `size` : Nombre d'éléments par lot (doit être > 0)
-
-**Retour** : `*PipelineConfig` pour le chaînage des méthodes
-
-**Exemple d'utilisation** :
-```go
-config := gopipeline.NewPipelineConfig().SetFlushSize(100)
-```
-
-#### SetFlushInterval(interval time.Duration)
-
-```go
-func (c *PipelineConfig) SetFlushInterval(interval time.Duration) *PipelineConfig
-```
-
-Définit l'intervalle de vidage maximum.
-
-**Paramètres** :
-- `interval` : Durée maximum entre les traitements
-
-**Retour** : `*PipelineConfig`
-
-**Exemple d'utilisation** :
-```go
-config := gopipeline.NewPipelineConfig().
-    SetFlushInterval(5 * time.Second)
-```
-
-#### SetMaxWorkers(workers int)
-
-```go
-func (c *PipelineConfig) SetMaxWorkers(workers int) *PipelineConfig
-```
-
-Définit le nombre de workers de traitement concurrent.
-
-**Paramètres** :
-- `workers` : Nombre de goroutines de traitement (doit être > 0)
-
-**Retour** : `*PipelineConfig`
-
-**Exemple d'utilisation** :
-```go
-config := gopipeline.NewPipelineConfig().
-    SetMaxWorkers(runtime.NumCPU() * 2)
-```
-
-#### SetChannelSize(size int)
-
-```go
-func (c *PipelineConfig) SetChannelSize(size int) *PipelineConfig
-```
-
-Définit la taille du buffer du canal interne.
-
-**Paramètres** :
-- `size` : Taille du buffer (doit être > 0)
-
-**Retour** : `*PipelineConfig`
-
-**Exemple d'utilisation** :
-```go
-config := gopipeline.NewPipelineConfig().
-    SetChannelSize(1000)
-```
-
-### StandardPipeline[T]
-
-Pipeline standard pour le traitement par lots générique.
-
-```go
-type StandardPipeline[T any] struct {
-    // Champs internes (non exportés)
-}
-```
-
-#### NewStandardPipeline[T](processor func([]T) error)
-
-```go
-func NewStandardPipeline[T any](processor func([]T) error) *StandardPipeline[T]
-```
-
-Crée un nouveau pipeline standard avec la configuration par défaut.
-
-**Paramètres** :
-- `processor` : Fonction de traitement des lots
-
-**Retour** : `*StandardPipeline[T]`
-
-**Exemple d'utilisation** :
-```go
-pipeline := gopipeline.NewStandardPipeline[int](func(items []int) error {
-    fmt.Printf("Traitement : %v\n", items)
-    return nil
-})
-```
-
-#### NewStandardPipelineWithConfig[T](processor func([]T) error, config *PipelineConfig)
-
-```go
-func NewStandardPipelineWithConfig[T any](
-    processor func([]T) error, 
-    config *PipelineConfig,
-) *StandardPipeline[T]
-```
-
-Crée un nouveau pipeline standard avec une configuration personnalisée.
-
-**Paramètres** :
-- `processor` : Fonction de traitement des lots
-- `config` : Configuration personnalisée
-
-**Retour** : `*StandardPipeline[T]`
-
-**Exemple d'utilisation** :
-```go
-config := gopipeline.NewPipelineConfig().SetFlushSize(100)
-pipeline := gopipeline.NewStandardPipelineWithConfig[string](processor, config)
-```
-
-#### Add(item T)
-
-```go
-func (p *StandardPipeline[T]) Add(item T)
-```
-
-Ajoute un élément au pipeline pour traitement.
-
-**Paramètres** :
-- `item` : Élément à traiter
-
-**Exemple d'utilisation** :
-```go
-pipeline.Add(42)
-pipeline.Add("hello")
-```
-
-#### Close()
-
-```go
-func (p *StandardPipeline[T]) Close()
-```
-
-Ferme le pipeline et traite tous les éléments restants.
-
-**Exemple d'utilisation** :
-```go
-pipeline.Close()
-```
-
-#### Wait()
-
-```go
-func (p *StandardPipeline[T]) Wait()
-```
-
-Attend que tous les traitements en cours se terminent.
-
-**Exemple d'utilisation** :
-```go
-pipeline.Close()
-pipeline.Wait() // Attendre la fin complète
-```
-
-#### GetMetrics()
-
-```go
-func (p *StandardPipeline[T]) GetMetrics() PipelineMetrics
-```
-
-Retourne les métriques actuelles du pipeline.
-
-**Retour** : `PipelineMetrics`
-
-**Exemple d'utilisation** :
-```go
-metrics := pipeline.GetMetrics()
-fmt.Printf("Éléments traités : %d\n", metrics.ProcessedCount)
-```
-
-### DeduplicationPipeline[T]
-
-Pipeline spécialisé avec déduplication automatique.
-
-```go
-type DeduplicationPipeline[T any] struct {
-    // Champs internes (non exportés)
-}
-```
-
-#### NewDeduplicationPipeline[T](processor func([]T) error, keyFunc func(T) string)
-
-```go
-func NewDeduplicationPipeline[T any](
-    processor func([]T) error,
-    keyFunc func(T) string,
-) *DeduplicationPipeline[T]
-```
-
-Crée un nouveau pipeline de déduplication avec la configuration par défaut.
-
-**Paramètres** :
-- `processor` : Fonction de traitement des lots
-- `keyFunc` : Fonction de génération de clé pour la déduplication
-
-**Retour** : `*DeduplicationPipeline[T]`
-
-**Exemple d'utilisation** :
-```go
-pipeline := gopipeline.NewDeduplicationPipeline[int](
-    func(items []int) error {
-        fmt.Printf("Éléments uniques : %v\n", items)
-        return nil
-    },
-    func(item int) string {
-        return fmt.Sprintf("key_%d", item)
-    },
-)
-```
-
-#### NewDeduplicationPipelineWithConfig[T](processor func([]T) error, keyFunc func(T) string, config *PipelineConfig)
-
-```go
-func NewDeduplicationPipelineWithConfig[T any](
-    processor func([]T) error,
-    keyFunc func(T) string,
-    config *PipelineConfig,
-) *DeduplicationPipeline[T]
-```
-
-Crée un nouveau pipeline de déduplication avec une configuration personnalisée.
-
-**Paramètres** :
-- `processor` : Fonction de traitement des lots
-- `keyFunc` : Fonction de génération de clé
-- `config` : Configuration personnalisée
-
-**Retour** : `*DeduplicationPipeline[T]`
-
-**Exemple d'utilisation** :
-```go
-config := gopipeline.NewPipelineConfig().SetFlushSize(50)
-pipeline := gopipeline.NewDeduplicationPipelineWithConfig[User](
-    processor, keyFunc, config)
-```
-
-Les méthodes `Add()`, `Close()`, `Wait()`, et `GetMetrics()` sont identiques à celles du StandardPipeline.
-
-### PipelineMetrics
-
-Structure contenant les métriques de performance du pipeline.
-
-```go
-type PipelineMetrics struct {
-    ProcessedCount     int64         // Nombre total d'éléments traités
-    BatchCount         int64         // Nombre total de lots traités
-    ErrorCount         int64         // Nombre d'erreurs rencontrées
-    DroppedCount       int64         // Nombre d'éléments supprimés (déduplication)
-    PendingCount       int64         // Nombre d'éléments en attente
-    AvgProcessingTime  time.Duration // Temps de traitement moyen par lot
-    LastProcessedTime  time.Time     // Timestamp du dernier traitement
-}
-```
-
-**Champs** :
-
-- `ProcessedCount` : Nombre total d'éléments traités avec succès
-- `BatchCount` : Nombre de lots traités
-- `ErrorCount` : Nombre d'erreurs de traitement
-- `DroppedCount` : Éléments supprimés (uniquement pour DeduplicationPipeline)
-- `PendingCount` : Éléments en attente de traitement
-- `AvgProcessingTime` : Temps moyen de traitement par lot
-- `LastProcessedTime` : Timestamp du dernier traitement réussi
-
-## Interfaces
-
-### Pipeline[T]
-
-Interface commune pour tous les types de pipeline.
+Interface principale du pipeline qui combine toutes les fonctionnalités du pipeline.
 
 ```go
 type Pipeline[T any] interface {
-    Add(item T)
-    Close()
-    Wait()
-    GetMetrics() PipelineMetrics
+    PipelineChannel[T]
+    Performer[T]
+    DataProcessor[T]
 }
 ```
 
-Cette interface permet l'utilisation polymorphe des différents types de pipeline.
+### PipelineChannel[T any]
 
-**Exemple d'utilisation** :
+Définit l'interface d'accès au canal du pipeline.
+
 ```go
-func processPipeline[T any](p Pipeline[T], items []T) {
-    for _, item := range items {
-        p.Add(item)
-    }
-    p.Close()
-    p.Wait()
+type PipelineChannel[T any] interface {
+    // DataChan retourne un canal en écriture pour ajouter des données au pipeline
+    DataChan() chan<- T
+    
+    // ErrorChan retourne un canal en lecture seule pour recevoir les informations d'erreur du pipeline
+    ErrorChan(size int) <-chan error
 }
 ```
 
-## Fonctions utilitaires
+#### DataChan()
 
-### GetDefaultConfig()
+Retourne le canal d'entrée de données.
 
-```go
-func GetDefaultConfig() *PipelineConfig
-```
-
-Retourne une nouvelle instance de la configuration par défaut.
-
-**Retour** : `*PipelineConfig` avec les valeurs par défaut
+**Valeur de retour** : `chan<- T` - Canal en écriture seule pour ajouter des données
 
 **Exemple d'utilisation** :
 ```go
-defaultConfig := gopipeline.GetDefaultConfig()
-fmt.Printf("Taille par défaut : %d\n", defaultConfig.FlushSize)
+dataChan := pipeline.DataChan()
+dataChan <- "some data"
+close(dataChan) // Fermer le canal quand terminé
 ```
 
-### ValidateConfig(config *PipelineConfig)
+#### ErrorChan(size int)
 
-```go
-func ValidateConfig(config *PipelineConfig) error
-```
-
-Valide une configuration et retourne une erreur si elle est invalide.
+Retourne le canal de sortie d'erreur.
 
 **Paramètres** :
-- `config` : Configuration à valider
+- `size int` - Taille du tampon du canal d'erreur
 
-**Retour** : `error` si la configuration est invalide, `nil` sinon
+**Valeur de retour** : `<-chan error` - Canal en lecture seule pour recevoir les erreurs
 
 **Exemple d'utilisation** :
 ```go
-config := &PipelineConfig{FlushSize: -1} // Configuration invalide
-if err := gopipeline.ValidateConfig(config); err != nil {
-    log.Printf("Configuration invalide : %v", err)
+errorChan := pipeline.ErrorChan(10)
+go func() {
+    for err := range errorChan {
+        log.Printf("Erreur du pipeline : %v", err)
+    }
+}()
+```
+
+### Performer[T any]
+
+Définit l'interface pour exécuter les opérations du pipeline.
+
+```go
+type Performer[T any] interface {
+    // AsyncPerform exécute les opérations du pipeline de manière asynchrone
+    AsyncPerform(ctx context.Context) error
+    
+    // SyncPerform exécute les opérations du pipeline de manière synchrone
+    SyncPerform(ctx context.Context) error
 }
 ```
 
-## Types d'erreur
+#### AsyncPerform(ctx context.Context)
 
-### ErrPipelineClosed
+Exécute les opérations du pipeline de manière asynchrone, ne bloque pas le thread appelant.
 
+**Paramètres** :
+- `ctx context.Context` - Objet contexte pour contrôler le cycle de vie de l'opération
+
+**Valeur de retour** : `error` - Retourne une erreur si ctx est annulé
+
+**Exemple d'utilisation** :
 ```go
-var ErrPipelineClosed = errors.New("pipeline is closed")
+ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+defer cancel()
+
+go func() {
+    if err := pipeline.AsyncPerform(ctx); err != nil {
+        log.Printf("Erreur d'exécution du pipeline : %v", err)
+    }
+}()
 ```
 
-Erreur retournée lors de tentative d'ajout d'éléments à un pipeline fermé.
+#### SyncPerform(ctx context.Context)
 
-### ErrInvalidConfig
+Exécute les opérations du pipeline de manière synchrone, bloque jusqu'à la fin ou l'annulation.
 
+**Paramètres** :
+- `ctx context.Context` - Objet contexte
+
+**Valeur de retour** : `error` - Erreur d'exécution ou erreur d'annulation
+
+**Exemple d'utilisation** :
 ```go
-var ErrInvalidConfig = errors.New("invalid pipeline configuration")
+ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+defer cancel()
+
+if err := pipeline.SyncPerform(ctx); err != nil {
+    log.Printf("Erreur d'exécution du pipeline : %v", err)
+}
 ```
 
-Erreur retournée pour une configuration invalide.
+### DataProcessor[T any]
 
-### ErrProcessingFailed
+Définit l'interface principale pour le traitement par lots des données (principalement pour l'implémentation interne).
 
 ```go
-var ErrProcessingFailed = errors.New("batch processing failed")
+type DataProcessor[T any] interface {
+    initBatchData() any
+    addToBatch(batchData any, data T) any
+    flush(ctx context.Context, batchData any) error
+    isBatchFull(batchData any) bool
+    isBatchEmpty(batchData any) bool
+}
 ```
 
-Erreur retournée lors d'échec du traitement d'un lot.
+## Types de configuration
 
-## Constantes
+### PipelineConfig
 
-### Valeurs par défaut
+Structure de configuration du pipeline.
 
 ```go
-const (
-    DefaultFlushSize     = 50                    // Taille de lot par défaut
-    DefaultFlushInterval = 1 * time.Second       // Intervalle par défaut
-    DefaultChannelSize   = 100                   // Taille de canal par défaut
-    MaxFlushSize         = 10000                 // Taille de lot maximum
-    MinFlushSize         = 1                     // Taille de lot minimum
-    MaxChannelSize       = 100000                // Taille de canal maximum
-    MinChannelSize       = 1                     // Taille de canal minimum
+type PipelineConfig struct {
+    BufferSize    uint32        // Capacité du canal tampon (défaut : 100)
+    FlushSize     uint32        // Capacité maximale des données de traitement par lots (défaut : 50)
+    FlushInterval time.Duration // Intervalle de temps pour l'actualisation programmée (défaut : 50ms)
+}
+```
+
+**Descriptions des champs** :
+- `BufferSize` : Taille du tampon du canal de données interne
+- `FlushSize` : Quantité maximale de données par traitement par lots
+- `FlushInterval` : Intervalle de temps pour déclencher le traitement par lots
+
+## API du pipeline standard
+
+### Définitions de types
+
+```go
+type FlushStandardFunc[T any] func(ctx context.Context, batchData []T) error
+
+type StandardPipeline[T any] struct {
+    *PipelineImpl[T]
+    flushFunc FlushStandardFunc[T]
+}
+```
+
+### Constructeurs
+
+#### NewDefaultStandardPipeline[T any]
+
+Crée un pipeline standard avec la configuration par défaut.
+
+```go
+func NewDefaultStandardPipeline[T any](
+    flushFunc FlushStandardFunc[T],
+) *StandardPipeline[T]
+```
+
+**Paramètres** :
+- `flushFunc FlushStandardFunc[T]` - Fonction de traitement par lots
+
+**Valeur de retour** : `*StandardPipeline[T]` - Instance du pipeline standard
+
+**Exemple d'utilisation** :
+```go
+pipeline := gopipeline.NewDefaultStandardPipeline(
+    func(ctx context.Context, batchData []string) error {
+        fmt.Printf("Traitement de %d éléments : %v\n", len(batchData), batchData)
+        return nil
+    },
 )
 ```
 
-## Exemples d'utilisation complète
+#### NewStandardPipeline[T any]
 
-### Pipeline standard avec gestion d'erreur
+Crée un pipeline standard avec une configuration personnalisée.
 
 ```go
-package main
+func NewStandardPipeline[T any](
+    config PipelineConfig,
+    flushFunc FlushStandardFunc[T],
+) *StandardPipeline[T]
+```
 
-import (
-    "fmt"
-    "log"
-    "time"
-    
-    "github.com/rushairer/go-pipeline/v2"
+**Paramètres** :
+- `config PipelineConfig` - Configuration personnalisée
+- `flushFunc FlushStandardFunc[T]` - Fonction de traitement par lots
+
+**Valeur de retour** : `*StandardPipeline[T]` - Instance du pipeline standard
+
+**Exemple d'utilisation** :
+```go
+standardConfig := gopipeline.PipelineConfig{
+    BufferSize:    200,
+    FlushSize:     100,
+    FlushInterval: time.Millisecond * 100,
+}
+
+pipeline := gopipeline.NewStandardPipeline(standardConfig,
+    func(ctx context.Context, batchData []string) error {
+        return processData(batchData)
+    },
 )
+```
 
-func main() {
-    // Configuration personnalisée
-    config := gopipeline.NewPipelineConfig().
-        SetFlushSize(10).
-        SetFlushInterval(2 * time.Second).
-        SetMaxWorkers(2)
+## API du pipeline de déduplication
+
+### Définitions de types
+
+```go
+type KeyFunc[T any] func(T) string
+type FlushDeduplicationFunc[T any] func(ctx context.Context, batchData []T) error
+
+type DeduplicationPipeline[T any] struct {
+    *PipelineImpl[T]
+    keyFunc   KeyFunc[T]
+    flushFunc FlushDeduplicationFunc[T]
+}
+```
+
+### Constructeurs
+
+#### NewDefaultDeduplicationPipeline[T any]
+
+Crée un pipeline de déduplication avec la configuration par défaut.
+
+```go
+func NewDefaultDeduplicationPipeline[T any](
+    keyFunc KeyFunc[T],
+    flushFunc FlushDeduplicationFunc[T],
+) *DeduplicationPipeline[T]
+```
+
+**Paramètres** :
+- `keyFunc KeyFunc[T]` - Fonction de génération de clé unique
+- `flushFunc FlushDeduplicationFunc[T]` - Fonction de traitement par lots
+
+**Valeur de retour** : `*DeduplicationPipeline[T]` - Instance du pipeline de déduplication
+
+**Exemple d'utilisation** :
+```go
+pipeline := gopipeline.NewDefaultDeduplicationPipeline(
+    func(user User) string {
+        return user.Email // Utiliser l'email comme clé unique
+    },
+    func(ctx context.Context, users []User) error {
+        return processUsers(users)
+    },
+)
+```
+
+#### NewDeduplicationPipeline[T any]
+
+Crée un pipeline de déduplication avec une configuration personnalisée.
+
+```go
+func NewDeduplicationPipeline[T any](
+    config PipelineConfig,
+    keyFunc KeyFunc[T],
+    flushFunc FlushDeduplicationFunc[T],
+) *DeduplicationPipeline[T]
+```
+
+**Paramètres** :
+- `config PipelineConfig` - Configuration personnalisée
+- `keyFunc KeyFunc[T]` - Fonction de génération de clé unique
+- `flushFunc FlushDeduplicationFunc[T]` - Fonction de traitement par lots
+
+**Valeur de retour** : `*DeduplicationPipeline[T]` - Instance du pipeline de déduplication
+
+**Exemple d'utilisation** :
+```go
+deduplicationConfig := gopipeline.PipelineConfig{
+    BufferSize:    100,
+    FlushSize:     50,
+    FlushInterval: time.Millisecond * 100,
+}
+
+pipeline := gopipeline.NewDeduplicationPipeline(deduplicationConfig,
+    func(product Product) string {
+        return fmt.Sprintf("%s-%s", product.SKU, product.Version)
+    },
+    func(ctx context.Context, products []Product) error {
+        return updateProducts(products)
+    },
+)
+```
+
+## Types d'erreurs
+
+### PipelineError
+
+Type de base pour les erreurs liées au pipeline.
+
+```go
+type PipelineError struct {
+    Op  string // Nom de l'opération
+    Err error  // Erreur originale
+}
+
+func (e *PipelineError) Error() string {
+    return fmt.Sprintf("pipeline %s: %v", e.Op, e.Err)
+}
+
+func (e *PipelineError) Unwrap() error {
+    return e.Err
+}
+```
+
+### Erreurs communes
+
+- `ErrPipelineClosed` : Le pipeline est fermé
+- `ErrContextCanceled` : Le contexte a été annulé
+- `ErrFlushTimeout` : Timeout de l'opération de vidage
+
+## Modèles d'utilisation
+
+### Modèle d'utilisation de base
+
+```go
+// 1. Créer le pipeline
+pipeline := gopipeline.NewDefaultStandardPipeline(flushFunc)
+
+// 2. Démarrer le traitement asynchrone
+ctx, cancel := context.WithCancel(context.Background())
+defer cancel()
+
+go func() {
+    if err := pipeline.AsyncPerform(ctx); err != nil {
+        log.Printf("Erreur du pipeline : %v", err)
+    }
+}()
+
+// 3. Écouter les erreurs
+go func() {
+    for err := range pipeline.ErrorChan(10) {
+        log.Printf("Erreur de traitement : %v", err)
+    }
+}()
+
+// 4. Ajouter des données
+dataChan := pipeline.DataChan()
+for _, data := range inputData {
+    dataChan <- data
+}
+
+// 5. Fermer et attendre la fin
+close(dataChan)
+time.Sleep(time.Second) // Attendre la fin du traitement
+```
+
+### Modèle d'arrêt gracieux
+
+```go
+func gracefulShutdown(pipeline Pipeline[Data]) {
+    // 1. Arrêter l'ajout de nouvelles données
+    close(pipeline.DataChan())
     
-    // Créer le pipeline
-    pipeline := gopipeline.NewStandardPipelineWithConfig[int](
-        func(items []int) error {
-            fmt.Printf("Traitement de %d éléments : %v\n", len(items), items)
+    // 2. Attendre la fin du traitement
+    ctx, cancel := context.WithTimeout(context.Background(), time.Second*30)
+    defer cancel()
+    
+    done := make(chan struct{})
+    go func() {
+        defer close(done)
+        // Attendre la fermeture du canal d'erreur (indique la fin du traitement)
+        for range pipeline.ErrorChan(1) {
+            // Consommer les erreurs restantes
+        }
+    }()
+    
+    select {
+    case <-done:
+        log.Println("Arrêt du pipeline terminé")
+    case <-ctx.Done():
+        log.Println("Timeout d'arrêt du pipeline")
+    }
+}
+```
+
+### Modèle de gestion d'erreurs
+
+```go
+func handlePipelineErrors(pipeline Pipeline[Data]) {
+    errorChan := pipeline.ErrorChan(100)
+    
+    for err := range errorChan {
+        switch e := err.(type) {
+        case *PipelineError:
+            log.Printf("Échec de l'opération pipeline %s : %v", e.Op, e.Err)
             
-            // Simuler un traitement qui peut échouer
-            for _, item := range items {
-                if item < 0 {
-                    return fmt.Errorf("valeur négative non autorisée : %d", item)
-                }
-            }
-            return nil
-        },
-        config,
-    )
-    
-    // Ajouter des données
-    for i := 1; i <= 25; i++ {
-        pipeline.Add(i)
+        case *net.OpError:
+            log.Printf("Erreur réseau : %v", e)
+            // Peut nécessiter un retry ou un traitement de fallback
+            
+        default:
+            log.Printf("Erreur inconnue : %v", err)
+        }
     }
-    
-    // Fermer et attendre
-    pipeline.Close()
-    pipeline.Wait()
-    
-    // Afficher les métriques finales
-    metrics := pipeline.GetMetrics()
-    fmt.Printf("\nMétriques finales :\n")
-    fmt.Printf("  Éléments traités : %d\n", metrics.ProcessedCount)
-    fmt.Printf("  Lots traités : %d\n", metrics.BatchCount)
-    fmt.Printf("  Erreurs : %d\n", metrics.ErrorCount)
-    fmt.Printf("  Temps moyen : %v\n", metrics.AvgProcessingTime)
 }
 ```
 
-### Pipeline de déduplication avec métriques
+## Considérations de performance
 
-```go
-package main
+### Utilisation mémoire
 
-import (
-    "fmt"
-    "time"
-    
-    "github.com/rushairer/go-pipeline/v2"
-)
+- Pipeline standard : Utilisation mémoire proportionnelle à `BufferSize`
+- Pipeline de déduplication : Utilisation mémoire proportionnelle à `FlushSize` (besoin de stocker la map)
 
-type User struct {
-    ID   int
-    Name string
-}
+### Sécurité concurrentielle
 
-func main() {
-    pipeline := gopipeline.NewDeduplicationPipeline[User](
-        func(users []User) error {
-            fmt.Printf("Traitement de %d utilisateurs uniques\n", len(users))
-            for _, user := range users {
-                fmt.Printf("  - %s (ID: %d)\n", user.Name, user.ID)
-            }
-            return nil
-        },
-        func(user User) string {
-            return fmt.Sprintf("user_%d", user.ID)
-        },
-    )
-    
-    // Ajouter des utilisateurs (avec doublons)
-    users := []User{
-        {1, "Alice"},
-        {2, "Bob"},
-        {1, "Alice"}, // Doublon
-        {3, "Charlie"},
-        {2, "Bob"},   // Doublon
-    }
-    
-    for _, user := range users {
-        pipeline.Add(user)
-    }
-    
-    pipeline.Close()
-    pipeline.Wait()
-    
-    // Afficher les métriques
-    metrics := pipeline.GetMetrics()
-    fmt.Printf("\nMétriques :\n")
-    fmt.Printf("  Éléments traités : %d\n", metrics.ProcessedCount)
-    fmt.Printf("  Éléments supprimés : %d\n", metrics.DroppedCount)
-    fmt.Printf("  Taux de déduplication : %.1f%%\n", 
-        float64(metrics.DroppedCount)/float64(len(users))*100)
-}
+- Toutes les API publiques sont sûres pour la concurrence
+- Peut écrire des données depuis plusieurs goroutines simultanément vers `DataChan()`
+- Le canal d'erreur peut être consommé par plusieurs goroutines
+
+### Nettoyage des ressources
+
+- Doit consommer le canal d'erreur, sinon peut causer des fuites de goroutines
+- Devrait fermer le canal de données quand terminé
+- Recommandé d'utiliser le contexte pour contrôler le cycle de vie du pipeline
+
+## Compatibilité des versions
+
+Go Pipeline v2 nécessite :
+- Go 1.18+ (support des génériques)
+- Rétrocompatible avec Go 1.18-1.21
+
+## Étapes suivantes
+
+- [Pipeline standard](./standard-pipeline) - Guide détaillé d'utilisation du pipeline standard
+- [Pipeline de déduplication](./deduplication-pipeline) - Guide détaillé d'utilisation du pipeline de déduplication
+- [Guide de configuration](./configuration) - Instructions détaillées des paramètres de configuration

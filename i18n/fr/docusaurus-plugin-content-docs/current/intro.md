@@ -2,28 +2,69 @@
 sidebar_position: 1
 ---
 
-# Go Pipeline
+# Introduction à Go Pipeline v2
 
-**Go Pipeline** est un framework de traitement par lots haute performance pour Go, conçu pour simplifier et optimiser le traitement des données par lots. Il prend en charge les génériques Go 1.18+, offrant une sécurité de type et une flexibilité exceptionnelles.
+Go Pipeline v2 est un framework de pipeline de traitement par lots haute performance pour Go qui prend en charge les génériques, la sécurité concurrentielle et fournit deux modes : traitement par lots standard et traitement par lots avec déduplication.
 
-## ✨ Caractéristiques principales
+## 🚀 Fonctionnalités principales
 
-- 🚀 **Haute performance** : Traitement par lots optimisé avec gestion intelligente de la mémoire
-- 🔒 **Sécurité de concurrence** : Mécanismes intégrés de sécurité goroutine
-- 🎯 **Support générique** : Implémentation sûre basée sur les génériques Go 1.18+
-- 🔄 **Déduplication** : Pipeline de déduplication intégré pour éliminer les données en double
-- ⚙️ **Configuration flexible** : Configuration riche pour différents scénarios
-- 📊 **Surveillance** : Métriques et surveillance intégrées
+- **Support des génériques** : Basé sur les génériques Go 1.18+, sécurisé au niveau des types
+- **Mécanisme de traitement par lots** : Prend en charge le traitement automatique par lots par taille et intervalle de temps
+- **Sécurité concurrentielle** : Mécanisme de sécurité goroutine intégré
+- **Configuration flexible** : Taille de tampon, taille de lot et intervalle de vidage personnalisables
+- **Gestion d'erreurs** : Mécanisme complet de gestion et de propagation d'erreurs
+- **Deux modes** : Traitement par lots standard et traitement par lots avec déduplication
+- **Sync/Async** : Prend en charge les modes d'exécution synchrone et asynchrone
+- **Conventions Go** : Adopte le principe de gestion des canaux "l'écrivain ferme"
 
-## 🚀 Démarrage rapide
+## 📋 Exigences système
 
-### Installation
+- Go 1.18+ (support des génériques)
+- Prend en charge Linux, macOS, Windows
+
+## 📦 Installation
 
 ```bash
-go get github.com/rushairer/go-pipeline/v2
+go get github.com/rushairer/go-pipeline/v2@latest
 ```
 
-### Utilisation de base
+## 🏗️ Conception de l'architecture
+
+```
+┌─────────────────┐    ┌──────────────────┐    ┌─────────────────┐
+│   Entrée données│───▶│   Canal tampon   │───▶│ Processeur lots │
+└─────────────────┘    └──────────────────┘    └─────────────────┘
+                                │                        │
+                                ▼                        ▼
+                       ┌──────────────────┐    ┌─────────────────┐
+                       │   Timer Ticker   │    │ Gestionnaire    │
+                       └──────────────────┘    │    vidage       │
+                                │              └─────────────────┘
+                                └────────┬───────────────┘
+                                         ▼
+                                ┌─────────────────┐
+                                │  Canal erreurs  │
+                                └─────────────────┘
+```
+
+## 📦 Composants principaux
+
+### Définitions d'interfaces
+
+- **`PipelineChannel[T]`** : Définit l'interface d'accès au canal du pipeline
+- **`Performer`** : Définit l'interface pour exécuter les opérations du pipeline
+- **`DataProcessor[T]`** : Définit l'interface principale pour le traitement par lots des données
+- **`Pipeline[T]`** : Combine toutes les fonctionnalités du pipeline en une interface universelle
+
+### Types d'implémentation
+
+- **`StandardPipeline[T]`** : Pipeline de traitement par lots standard, les données sont traitées par lots dans l'ordre
+- **`DeduplicationPipeline[T]`** : Pipeline de traitement par lots avec déduplication, déduplique basé sur des clés uniques
+- **`PipelineImpl[T]`** : Implémentation générique du pipeline, fournit les fonctionnalités de base
+
+## 💡 Démarrage rapide
+
+### Exemple de pipeline standard
 
 ```go
 package main
@@ -31,110 +72,74 @@ package main
 import (
     "context"
     "fmt"
+    "log"
     "time"
     
-    "github.com/rushairer/go-pipeline/v2"
+    gopipeline "github.com/rushairer/go-pipeline/v2"
 )
 
 func main() {
-    // Créer un pipeline avec configuration par défaut
-    pipeline := gopipeline.NewStandardPipeline[int](func(items []int) error {
-        fmt.Printf("Traitement du lot : %v\n", items)
-        return nil
-    })
+    // Créer un pipeline standard
+    pipeline := gopipeline.NewDefaultStandardPipeline(
+        func(ctx context.Context, batchData []int) error {
+            fmt.Printf("Traitement des données par lots : %v\n", batchData)
+            return nil
+        },
+    )
+    
+    ctx, cancel := context.WithTimeout(context.Background(), time.Second*10)
+    defer cancel()
+    
+    // Démarrer le traitement asynchrone
+    go func() {
+        if err := pipeline.AsyncPerform(ctx); err != nil {
+            log.Printf("Erreur d'exécution du pipeline : %v", err)
+        }
+    }()
+    
+    // Écouter les erreurs
+    errorChan := pipeline.ErrorChan(10)
+    go func() {
+        for err := range errorChan {
+            log.Printf("Erreur de traitement : %v", err)
+        }
+    }()
     
     // Ajouter des données
-    pipeline.Add(1)
-    pipeline.Add(2)
-    pipeline.Add(3)
+    dataChan := pipeline.DataChan()
+    for i := 0; i < 100; i++ {
+        dataChan <- i
+    }
     
-    // Fermer et attendre la fin du traitement
-    pipeline.Close()
-    pipeline.Wait()
+    // Fermer le canal de données
+    close(dataChan)
+    
+    // Attendre la fin du traitement
+    time.Sleep(time.Second * 2)
 }
 ```
 
-## 📋 Types de pipeline
-
-### Pipeline standard
-Le pipeline standard est adapté à la plupart des scénarios de traitement par lots :
+## 📋 Paramètres de configuration
 
 ```go
-pipeline := gopipeline.NewStandardPipeline[string](func(items []string) error {
-    // Traiter le lot de chaînes
-    for _, item := range items {
-        fmt.Println("Traitement :", item)
-    }
-    return nil
-})
+type PipelineConfig struct {
+    BufferSize    uint32        // Capacité du canal tampon (défaut : 100)
+    FlushSize     uint32        // Capacité maximale des données de traitement par lots (défaut : 50)
+    FlushInterval time.Duration // Intervalle de temps pour l'actualisation programmée (défaut : 50ms)
+}
 ```
 
-### Pipeline de déduplication
-Le pipeline de déduplication élimine automatiquement les données en double :
+### 🎯 Valeurs par défaut optimisées pour les performances
 
-```go
-pipeline := gopipeline.NewDeduplicationPipeline[int](
-    func(items []int) error {
-        // Traiter les éléments uniques
-        fmt.Printf("Éléments uniques : %v\n", items)
-        return nil
-    },
-    func(item int) string {
-        // Fonction de génération de clé pour la déduplication
-        return fmt.Sprintf("key_%d", item)
-    },
-)
-```
+Basé sur les benchmarks de performance, la version v2 adopte une configuration par défaut optimisée :
 
-## ⚙️ Configuration
+- **BufferSize: 100** - Taille du tampon, devrait être >= FlushSize * 2 pour éviter le blocage
+- **FlushSize: 50** - Taille du lot, les tests de performance montrent qu'environ 50 est optimal
+- **FlushInterval: 50ms** - Intervalle de vidage, équilibre la latence et le débit
 
-Go Pipeline offre une configuration riche pour s'adapter à différents scénarios :
+## Étapes suivantes
 
-```go
-config := gopipeline.NewPipelineConfig().
-    SetFlushSize(100).                    // Taille du lot
-    SetFlushInterval(5 * time.Second).    // Intervalle de vidage
-    SetMaxWorkers(4).                     // Nombre de workers
-    SetChannelSize(1000)                  // Taille du canal
-
-pipeline := gopipeline.NewStandardPipelineWithConfig[int](
-    func(items []int) error {
-        // Logique de traitement
-        return nil
-    },
-    config,
-)
-```
-
-## 📊 Surveillance et métriques
-
-```go
-// Obtenir les métriques du pipeline
-metrics := pipeline.GetMetrics()
-fmt.Printf("Éléments traités : %d\n", metrics.ProcessedCount)
-fmt.Printf("Lots traités : %d\n", metrics.BatchCount)
-fmt.Printf("Erreurs : %d\n", metrics.ErrorCount)
-```
-
-## 🎯 Scénarios d'utilisation
-
-- **Insertion en lot en base de données** : Optimiser les performances d'insertion
-- **Traitement de logs** : Agrégation et traitement par lots des logs
-- **Traitement d'événements** : Traitement par lots des événements en temps réel
-- **Traitement d'API** : Réduire les appels API par le traitement par lots
-- **Traitement de données** : Traitement efficace de grandes quantités de données
-
-## 📚 Documentation
-
-- [Pipeline standard](./standard-pipeline) - Guide d'utilisation du pipeline standard
-- [Pipeline de déduplication](./deduplication-pipeline) - Guide du pipeline de déduplication
-- [Configuration](./configuration) - Guide de configuration détaillé
-- [Référence API](./api-reference) - Documentation complète de l'API
-
-## 🤝 Contribution
-
-Les contributions sont les bienvenues ! Veuillez consulter notre [guide de contribution](https://github.com/rushairer/go-pipeline/blob/main/CONTRIBUTING.md).
-
-## 📄 Licence
-
-Ce projet est sous licence MIT. Voir le fichier [LICENSE](https://github.com/rushairer/go-pipeline/blob/main/LICENSE) pour plus de détails.
+- [Pipeline standard](./standard-pipeline) - Apprendre à utiliser le pipeline de traitement par lots standard
+- [Pipeline de déduplication](./deduplication-pipeline) - Apprendre à utiliser le pipeline de traitement par lots avec déduplication
+- [Guide de configuration](./configuration) - Instructions détaillées des paramètres de configuration
+- [Référence API](./api-reference) - Documentation API complète

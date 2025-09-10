@@ -2,170 +2,190 @@
 sidebar_position: 4
 ---
 
-# Configuration
+# Configuration Guide
 
-Go Pipeline v2 provides flexible configuration options to optimize performance for different scenarios. This guide covers all available configuration parameters and best practices.
+This document provides detailed information about Go Pipeline v2 configuration parameters and best practices.
+
+## Configuration Structure
+
+```go
+type PipelineConfig struct {
+    BufferSize    uint32        // Buffer channel capacity
+    FlushSize     uint32        // Maximum capacity of batch processing data
+    FlushInterval time.Duration // Time interval for timed refresh
+}
+```
 
 ## Default Configuration
 
-Based on performance benchmarks, Go Pipeline v2 provides optimized default values:
+Based on performance benchmarks, Go Pipeline v2 provides optimized default configuration:
 
 ```go
+const (
+    defaultBufferSize    = 100                   // Buffer size
+    defaultFlushSize     = 50                    // Batch size
+    defaultFlushInterval = time.Millisecond * 50 // Flush interval
+)
+```
+
+### Using Default Configuration
+
+You can use the `NewPipelineConfig()` function to create configuration with default values, then customize specific parameters:
+
+```go
+// Create configuration with default values
 config := gopipeline.NewPipelineConfig()
+
+// Use default values directly
+pipeline := gopipeline.NewStandardPipeline(config, flushFunc)
+
+// Or use chaining methods to customize specific parameters
+config = gopipeline.NewPipelineConfig().
+    WithFlushInterval(time.Millisecond * 10).
+    WithBufferSize(200)
+
+pipeline = gopipeline.NewStandardPipeline(config, flushFunc)
 ```
 
-This creates a configuration with the following defaults:
-- **BufferSize**: 100 (internal channel buffer)
-- **FlushSize**: 50 (batch size for processing)
-- **FlushInterval**: 100ms (maximum wait time)
+Available configuration methods:
+- `NewPipelineConfig()` - Create configuration with default values
+- `WithBufferSize(size uint32)` - Set buffer size
+- `WithFlushSize(size uint32)` - Set batch size
+- `WithFlushInterval(interval time.Duration)` - Set flush interval
 
-## Configuration Parameters
+## Configuration Parameters Details
 
-### BufferSize
+### BufferSize (Buffer Size)
 
-**Purpose**: Controls the size of the internal data channel buffer
+**Purpose**: Controls the buffer size of internal data channel
 
-**Default**: 100
+**Default Value**: 100
 
-**Range**: 10-10000
+**Recommended Values**: 
+- Should be >= FlushSize * 2 to avoid blocking
+- Can be appropriately increased for high concurrency scenarios
+
+```go
+standardConfig := gopipeline.PipelineConfig{
+    BufferSize:    200,                   // Recommended 2-4 times FlushSize
+    FlushSize:     50,                    // Standard batch size
+    FlushInterval: time.Millisecond * 50, // Standard flush interval
+}
+```
 
 **Impact**:
-- **Higher values**: Better throughput, higher memory usage
-- **Lower values**: Lower memory usage, potential blocking
+- Too small: May cause write blocking
+- Too large: Increases memory usage and delays shutdown time
 
-**Recommended values**:
-- General use: 50-200
-- High throughput: 500-2000
-- Memory constrained: 10-50
+### FlushSize (Batch Size)
+
+**Purpose**: Controls the amount of data in each batch processing
+
+**Default Value**: 50
+
+**Recommended Values**:
+- General scenarios: 20-100
+- High throughput scenarios: 100-500
+- Low latency scenarios: 10-50
 
 ```go
-config := gopipeline.NewPipelineConfig().
-    SetBufferSize(500)
+// Configuration examples for different scenarios
+// High throughput scenario
+highThroughputConfig := gopipeline.PipelineConfig{
+    BufferSize:    400,                   // Buffer size 2x FlushSize
+    FlushSize:     200,                   // Large batch processing
+    FlushInterval: time.Millisecond * 100, // Moderate interval
+}
+
+// Low latency scenario
+lowLatencyConfig := gopipeline.PipelineConfig{
+    BufferSize:    50,                    // Small buffer
+    FlushSize:     20,                    // Small batch processing
+    FlushInterval: time.Millisecond * 10, // Short interval
+}
 ```
-
-### FlushSize
-
-**Purpose**: Number of items to accumulate before triggering batch processing
-
-**Default**: 50
-
-**Range**: 1-1000
 
 **Impact**:
-- **Higher values**: Better throughput, higher latency
-- **Lower values**: Lower latency, more frequent processing
+- Too small: Increases processing frequency, reduces throughput
+- Too large: Increases latency and memory usage
 
-**Recommended values**:
-- General use: 20-100
-- High throughput: 100-500
-- Low latency: 1-20
+### FlushInterval (Flush Interval)
+
+**Purpose**: Controls the time interval for timed refresh
+
+**Default Value**: 50ms
+
+**Recommended Values**:
+- Low latency scenarios: 10-50ms
+- Balanced scenarios: 50-200ms
+- High throughput scenarios: 200ms-1s
 
 ```go
-config := gopipeline.NewPipelineConfig().
-    SetFlushSize(100)
+// Configuration examples for different scenarios
+// Low latency scenario
+lowLatencyConfig := gopipeline.PipelineConfig{
+    BufferSize:    50,                    // Small buffer
+    FlushSize:     10,                    // Small batch
+    FlushInterval: time.Millisecond * 10, // Very short interval
+}
+
+// High throughput scenario
+highThroughputConfig := gopipeline.PipelineConfig{
+    BufferSize:    1000,              // Large buffer
+    FlushSize:     500,               // Large batch
+    FlushInterval: time.Second,       // Long interval
+}
 ```
-
-### FlushInterval
-
-**Purpose**: Maximum time to wait before processing accumulated items
-
-**Default**: 100ms
-
-**Range**: 1ms-60s
 
 **Impact**:
-- **Higher values**: Better batching efficiency, higher latency
-- **Lower values**: Lower latency, more frequent processing
+- Too small: Increases CPU usage, may cause frequent small batch processing
+- Too large: Increases data processing latency
 
-**Recommended values**:
-- General use: 50ms-500ms
-- Low latency: 1ms-50ms
-- High throughput: 500ms-5s
+## Scenario-Based Configuration
 
-```go
-config := gopipeline.NewPipelineConfig().
-    SetFlushInterval(time.Millisecond * 200)
-```
-
-## Scenario-based Configuration
-
-### High Throughput Scenarios
-
-For maximum throughput when latency is not critical:
+### Database Batch Insert
 
 ```go
-highThroughputConfig := gopipeline.NewPipelineConfig().
-    SetBufferSize(2000).               // Large buffer
-    SetFlushSize(200).                 // Large batches
-    SetFlushInterval(time.Second * 2)  // Longer intervals
-
-pipeline := gopipeline.NewStandardPipeline(highThroughputConfig,
-    func(ctx context.Context, items []DataItem) error {
-        return processBatch(items)
-    },
-)
-```
-
-### Low Latency Scenarios
-
-For minimal processing delay:
-
-```go
-lowLatencyConfig := gopipeline.NewPipelineConfig().
-    SetBufferSize(50).                    // Small buffer
-    SetFlushSize(10).                     // Small batches
-    SetFlushInterval(time.Millisecond * 10) // Very short intervals
-
-pipeline := gopipeline.NewStandardPipeline(lowLatencyConfig,
-    func(ctx context.Context, items []DataItem) error {
-        return processRealTime(items)
-    },
-)
-```
-
-### Database Batch Operations
-
-Optimized for database batch inserts:
-
-```go
-dbConfig := gopipeline.NewPipelineConfig().
-    SetBufferSize(1000).               // Large buffer (database operations)
-    SetFlushSize(100).                 // Optimal batch size for DB
-    SetFlushInterval(time.Second)      // Reasonable interval
+// Database batch insert optimization configuration
+dbConfig := gopipeline.PipelineConfig{
+    BufferSize:    500,                    // Larger buffer
+    FlushSize:     100,                    // Moderate batch size
+    FlushInterval: time.Millisecond * 200, // Moderate latency
+}
 
 pipeline := gopipeline.NewStandardPipeline(dbConfig,
     func(ctx context.Context, records []Record) error {
-        return db.BatchInsert(records)
+        return db.CreateInBatches(records, len(records)).Error
     },
 )
 ```
 
-### API Call Batching
-
-Configuration for batching API calls:
+### API Call Batch Processing
 
 ```go
-apiConfig := gopipeline.NewPipelineConfig().
-    SetBufferSize(100).                   // Moderate buffer
-    SetFlushSize(20).                     // Small batches (avoid API limits)
-    SetFlushInterval(time.Millisecond * 50) // Low latency
+// API call batch processing configuration
+apiConfig := gopipeline.PipelineConfig{
+    BufferSize:    100,                   // Moderate buffer
+    FlushSize:     20,                    // Smaller batch (avoid API limits)
+    FlushInterval: time.Millisecond * 50, // Low latency
+}
 
 pipeline := gopipeline.NewStandardPipeline(apiConfig,
     func(ctx context.Context, requests []APIRequest) error {
-        return sendBatchRequest(requests)
+        return batchCallAPI(requests)
     },
 )
 ```
 
 ### Log Batch Writing
 
-Configuration for log aggregation:
-
 ```go
-logConfig := gopipeline.NewPipelineConfig().
-    SetBufferSize(1000).               // Large buffer (log volume)
-    SetFlushSize(200).                 // Large batches (reduce I/O)
-    SetFlushInterval(time.Millisecond * 100) // Moderate interval
+// Log batch writing configuration
+logConfig := gopipeline.PipelineConfig{
+    BufferSize:    1000,               // Large buffer (high log volume)
+    FlushSize:     200,                // Large batch
+    FlushInterval: time.Millisecond * 100, // Moderate latency
+}
 
 pipeline := gopipeline.NewStandardPipeline(logConfig,
     func(ctx context.Context, logs []LogEntry) error {
@@ -176,13 +196,13 @@ pipeline := gopipeline.NewStandardPipeline(logConfig,
 
 ### Real-time Data Processing
 
-Configuration for real-time scenarios:
-
 ```go
-realtimeConfig := gopipeline.NewPipelineConfig().
-    SetBufferSize(50).                    // Small buffer
-    SetFlushSize(10).                     // Small batches
-    SetFlushInterval(time.Millisecond * 10) // Very low latency
+// Real-time data processing configuration
+realtimeConfig := gopipeline.PipelineConfig{
+    BufferSize:    50,                    // Small buffer
+    FlushSize:     10,                    // Small batch
+    FlushInterval: time.Millisecond * 10, // Very low latency
+}
 
 pipeline := gopipeline.NewStandardPipeline(realtimeConfig,
     func(ctx context.Context, events []Event) error {
@@ -195,15 +215,15 @@ pipeline := gopipeline.NewStandardPipeline(realtimeConfig,
 
 ### 1. Determine Performance Goals
 
-First, clarify your performance objectives:
+First clarify your performance goals:
 
-- **Throughput priority**: Increase FlushSize and FlushInterval
-- **Latency priority**: Decrease FlushSize and FlushInterval
-- **Memory priority**: Decrease BufferSize and FlushSize
+- **Throughput Priority**: Increase FlushSize and FlushInterval
+- **Latency Priority**: Decrease FlushSize and FlushInterval
+- **Memory Priority**: Decrease BufferSize and FlushSize
 
 ### 2. Benchmarking
 
-Use benchmarks to validate configuration effectiveness:
+Use benchmarks to verify configuration effectiveness:
 
 ```go
 func BenchmarkPipelineConfig(b *testing.B) {
@@ -228,91 +248,170 @@ func BenchmarkPipelineConfig(b *testing.B) {
 }
 ```
 
-### 3. Monitoring and Adjustment
+### 3. Monitor Metrics
 
-Monitor pipeline performance and adjust configuration:
+Monitor key metrics to optimize configuration:
 
 ```go
-stats := pipeline.GetStats()
-if stats.AverageLatency > targetLatency {
-    // Reduce FlushSize or FlushInterval
+type PipelineMetrics struct {
+    TotalProcessed   int64
+    BatchCount       int64
+    AverageLatency   time.Duration
+    ErrorCount       int64
+    MemoryUsage      int64
 }
-if stats.Throughput < targetThroughput {
-    // Increase FlushSize or BufferSize
+
+func monitorPipeline(pipeline Pipeline[Data]) {
+    ticker := time.NewTicker(time.Second * 10)
+    defer ticker.Stop()
+    
+    for range ticker.C {
+        // Collect and record metrics
+        metrics := collectMetrics(pipeline)
+        log.Printf("Pipeline Metrics: %+v", metrics)
+        
+        // Adjust configuration based on metrics
+        if metrics.AverageLatency > time.Millisecond*100 {
+            // Consider reducing batch size or interval
+        }
+    }
 }
 ```
 
 ## Configuration Validation
 
-Go Pipeline automatically validates configuration parameters:
+### Configuration Reasonableness Check
 
 ```go
-config := gopipeline.NewPipelineConfig().
-    SetBufferSize(0) // This will be adjusted to minimum value (10)
+func validateConfig(config gopipeline.PipelineConfig) error {
+    if config.BufferSize < config.FlushSize*2 {
+        return fmt.Errorf("BufferSize (%d) should be at least 2x FlushSize (%d)", 
+            config.BufferSize, config.FlushSize)
+    }
+    
+    if config.FlushSize == 0 {
+        return fmt.Errorf("FlushSize cannot be zero")
+    }
+    
+    if config.FlushInterval <= 0 {
+        return fmt.Errorf("FlushInterval must be positive")
+    }
+    
+    return nil
+}
+```
 
-// Get effective configuration
-effectiveConfig := config.Validate()
-fmt.Printf("Effective BufferSize: %d", effectiveConfig.BufferSize)
+### Dynamic Configuration Adjustment
+
+```go
+type DynamicPipeline struct {
+    pipeline Pipeline[Data]
+    config   gopipeline.PipelineConfig
+    mutex    sync.RWMutex
+}
+
+func (dp *DynamicPipeline) UpdateConfig(newConfig gopipeline.PipelineConfig) error {
+    if err := validateConfig(newConfig); err != nil {
+        return err
+    }
+    
+    dp.mutex.Lock()
+    defer dp.mutex.Unlock()
+    
+    // Recreate pipeline (actual implementation may need more complex logic)
+    dp.config = newConfig
+    // dp.pipeline = recreatePipeline(newConfig)
+    
+    return nil
+}
 ```
 
 ## Common Issues and Solutions
 
-### Issue 1: High Processing Latency
+### Issue 1: High Data Processing Latency
 
-**Symptoms**: Data takes too long from addition to processing
+**Symptoms**: Time from data addition to processing completion is too long
 
-**Causes**:
-- FlushSize too large
-- FlushInterval too long
-- Processor function too slow
+**Possible Causes**:
+- FlushInterval set too large
+- FlushSize set too large
+- Processing function execution time too long
 
 **Solutions**:
 ```go
-// Reduce batch size and interval
-lowLatencyConfig := gopipeline.NewPipelineConfig().
-    SetFlushSize(10).                     // Smaller batches
-    SetFlushInterval(time.Millisecond * 10) // Shorter intervals
+// Reduce flush interval and batch size
+lowLatencyConfig := gopipeline.PipelineConfig{
+    BufferSize:    50,                    // Buffer adapted to small batches
+    FlushSize:     20,                    // Reduce batch size
+    FlushInterval: time.Millisecond * 10, // Reduce interval
+}
 ```
 
 ### Issue 2: High Memory Usage
 
 **Symptoms**: Program memory usage continues to grow
 
-**Causes**:
-- BufferSize too large
-- FlushSize too large
-- Processing slower than input rate
+**Possible Causes**:
+- BufferSize set too large
+- FlushSize set too large (especially for deduplication pipeline)
+- Error channel not being consumed
 
 **Solutions**:
 ```go
-// Reduce buffer and batch sizes
-memoryOptimizedConfig := gopipeline.NewPipelineConfig().
-    SetBufferSize(50).   // Smaller buffer
-    SetFlushSize(25)     // Smaller batches
+// Reduce buffer and batch size
+memoryOptimizedConfig := gopipeline.PipelineConfig{
+    BufferSize:    50,                    // Reduce buffer
+    FlushSize:     25,                    // Reduce batch size
+    FlushInterval: time.Millisecond * 50, // Keep moderate interval
+}
+
+// Ensure error channel consumption
+errorChan := pipeline.ErrorChan(10)
+go func() {
+    for {
+        select {
+        case err, ok := <-errorChan:
+            if !ok {
+                return
+            }
+            log.Printf("Error: %v", err)
+        case <-ctx.Done():
+            return
+        }
+    }
+}()
 ```
 
 ### Issue 3: Insufficient Throughput
 
-**Symptoms**: Processing speed can't keep up with data input rate
+**Symptoms**: Data processing speed cannot keep up with data generation speed
 
-**Causes**:
-- FlushSize too small
-- FlushInterval too short
-- Insufficient parallelism
+**Possible Causes**:
+- FlushSize set too small
+- FlushInterval set too small
+- BufferSize set too small causing blocking
 
 **Solutions**:
 ```go
-// Increase batch size and intervals
-highThroughputConfig := gopipeline.NewPipelineConfig().
-    SetBufferSize(1000).              // Larger buffer
-    SetFlushSize(200).                // Larger batches
-    SetFlushInterval(time.Second * 2) // Longer intervals
+// Increase batch size and buffer
+highThroughputConfig := gopipeline.PipelineConfig{
+    BufferSize:    500,                    // Increase buffer
+    FlushSize:     100,                    // Increase batch size
+    FlushInterval: time.Millisecond * 100, // Moderate interval
+}
 ```
 
-## Best Practices
+## Best Practices Summary
 
-1. **Start with defaults**: Begin with default configuration and adjust based on monitoring
-2. **Measure performance**: Use benchmarks to validate configuration changes
-3. **Consider trade-offs**: Balance between throughput, latency, and memory usage
-4. **Monitor in production**: Continuously monitor and adjust based on real workload
-5. **Test thoroughly**: Test configuration changes under realistic load conditions
+1. **Start with Default Configuration**: Default configuration suits most scenarios
+2. **Adjust Based on Actual Needs**: Adjust according to latency, throughput, memory requirements
+3. **Perform Benchmarking**: Use actual data for performance testing
+4. **Monitor Key Metrics**: Continuously monitor performance metrics
+5. **Configuration Validation**: Ensure configuration parameter reasonableness
+6. **Document Configuration**: Record reasons for configuration choices and test results
+
+## Next Steps
+
+- [API Reference](./api-reference) - Complete API documentation
+- [Standard Pipeline](./standard-pipeline) - Standard pipeline usage guide
+- [Deduplication Pipeline](./deduplication-pipeline) - Deduplication pipeline usage guide

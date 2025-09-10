@@ -2,335 +2,290 @@
 sidebar_position: 2
 ---
 
-# Pipeline Standard
+# Pipeline standard
 
-Le pipeline standard est le type de pipeline le plus couramment utilisé dans Go Pipeline, adapté à la plupart des scénarios de traitement par lots. Il offre un traitement par lots efficace avec une configuration flexible.
+StandardPipeline est l'un des composants principaux de Go Pipeline v2, fournissant une fonctionnalité de traitement par lots séquentiel pour les données.
 
-## Utilisation de base
+## Vue d'ensemble
 
-### Création avec configuration par défaut
+Le pipeline standard traite les données d'entrée par lots selon la taille de lot configurée et les intervalles de temps, adapté aux scénarios qui nécessitent de maintenir l'ordre des données.
+
+## Fonctionnalités principales
+
+- **Traitement séquentiel** : Les données sont traitées par lots dans l'ordre où elles ont été ajoutées
+- **Traitement automatique par lots** : Prend en charge le traitement automatique par lots déclenché par la taille et les intervalles de temps
+- **Sécurité concurrentielle** : Mécanisme de sécurité goroutine intégré
+- **Gestion d'erreurs** : Collecte et propagation d'erreurs complètes
+
+## Flux de données
+
+```mermaid
+graph TD
+    A[Entrée de données] --> B[Ajouter au canal tampon]
+    B --> C{Le lot est-il plein ?}
+    C -->|Oui| D[Exécuter le traitement par lots]
+    C -->|Non| E[Attendre plus de données]
+    E --> F{Timer déclenché ?}
+    F -->|Oui| G{Le lot est-il vide ?}
+    G -->|Non| D
+    G -->|Oui| E
+    F -->|Non| E
+    D --> H[Appeler la fonction de vidage]
+    H --> I{Des erreurs ?}
+    I -->|Oui| J[Envoyer au canal d'erreur]
+    I -->|Non| K[Réinitialiser le lot]
+    J --> K
+    K --> E
+```
+
+## Création d'un pipeline standard
+
+### Utilisation de la configuration par défaut
+
+```go
+pipeline := gopipeline.NewDefaultStandardPipeline(
+    func(ctx context.Context, batchData []string) error {
+        // Traiter les données par lots
+        fmt.Printf("Traitement de %d éléments : %v\n", len(batchData), batchData)
+        return nil
+    },
+)
+```
+
+### Utilisation d'une configuration personnalisée
+
+```go
+customConfig := gopipeline.PipelineConfig{
+    BufferSize:    200,                    // Taille du tampon
+    FlushSize:     100,                    // Taille du lot
+    FlushInterval: time.Millisecond * 100, // Intervalle de vidage
+}
+
+pipeline := gopipeline.NewStandardPipeline(customConfig,
+    func(ctx context.Context, batchData []string) error {
+        // Traiter les données par lots
+        return processData(batchData)
+    },
+)
+```
+
+## Exemples d'utilisation
+
+### Utilisation de base
 
 ```go
 package main
 
 import (
+    "context"
     "fmt"
-    "github.com/rushairer/go-pipeline/v2"
+    "log"
+    "time"
+    
+    gopipeline "github.com/rushairer/go-pipeline/v2"
 )
 
 func main() {
-    // Créer un pipeline standard avec configuration par défaut
-    pipeline := gopipeline.NewStandardPipeline[int](func(items []int) error {
-        fmt.Printf("Traitement du lot : %v\n", items)
-        return nil
-    })
+    // Créer le pipeline
+    pipeline := gopipeline.NewDefaultStandardPipeline(
+        func(ctx context.Context, batchData []string) error {
+            fmt.Printf("Traitement par lots de %d éléments : %v\n", len(batchData), batchData)
+            // Simuler le temps de traitement
+            time.Sleep(time.Millisecond * 10)
+            return nil
+        },
+    )
     
-    // Ajouter des données
-    for i := 1; i <= 10; i++ {
-        pipeline.Add(i)
-    }
+    ctx, cancel := context.WithTimeout(context.Background(), time.Second*5)
+    defer cancel()
     
-    // Fermer et attendre la fin
-    pipeline.Close()
-    pipeline.Wait()
-}
-```
-
-### Utilisation avec configuration personnalisée
-
-```go
-customConfig := gopipeline.NewPipelineConfig().
-    SetFlushSize(100).
-    SetFlushInterval(2 * time.Second).
-    SetMaxWorkers(4).
-    SetChannelSize(500)
-
-pipeline := gopipeline.NewStandardPipelineWithConfig[string](
-    func(items []string) error {
-        // Traiter le lot de chaînes
-        for _, item := range items {
-            fmt.Printf("Traitement : %s\n", item)
-        }
-        return nil
-    },
-    customConfig,
-)
-```
-
-## Gestion des erreurs
-
-### Gestion d'erreur de base
-
-```go
-pipeline := gopipeline.NewStandardPipeline[int](func(items []int) error {
-    for _, item := range items {
-        if item < 0 {
-            return fmt.Errorf("valeur négative non autorisée : %d", item)
-        }
-        // Traiter l'élément valide
-        fmt.Printf("Traitement : %d\n", item)
-    }
-    return nil
-})
-```
-
-### Gestion d'erreur avancée avec retry
-
-```go
-pipeline := gopipeline.NewStandardPipeline[string](func(items []string) error {
-    const maxRetries = 3
-    
-    for attempt := 1; attempt <= maxRetries; attempt++ {
-        err := processItems(items)
-        if err == nil {
-            return nil // Succès
-        }
-        
-        if attempt == maxRetries {
-            return fmt.Errorf("échec après %d tentatives : %w", maxRetries, err)
-        }
-        
-        // Attendre avant de réessayer
-        time.Sleep(time.Duration(attempt) * time.Second)
-    }
-    return nil
-})
-```
-
-## Utilisation avancée
-
-### Traitement avec contexte
-
-```go
-func createPipelineWithContext(ctx context.Context) *gopipeline.StandardPipeline[int] {
-    return gopipeline.NewStandardPipeline[int](func(items []int) error {
-        select {
-        case <-ctx.Done():
-            return ctx.Err() // Annulation détectée
-        default:
-            // Traitement normal
-            return processItems(items)
-        }
-    })
-}
-```
-
-### Traitement avec métriques
-
-```go
-pipeline := gopipeline.NewStandardPipeline[int](func(items []int) error {
-    start := time.Now()
-    defer func() {
-        duration := time.Since(start)
-        fmt.Printf("Lot de %d éléments traité en %v\n", len(items), duration)
-    }()
-    
-    // Logique de traitement
-    return processItems(items)
-})
-```
-
-## Optimisation des performances
-
-### 1. Ajustement de la taille des lots
-
-```go
-// Selon la capacité de traitement, ajuster la taille des lots
-highCapacityConfig := gopipeline.NewPipelineConfig().
-    SetFlushSize(200)  // Lots plus importants pour haute capacité
-
-lowCapacityConfig := gopipeline.NewPipelineConfig().
-    SetFlushSize(20)   // Lots plus petits pour faible capacité
-```
-
-### 2. Optimisation de la concurrence
-
-```go
-// Traitement intensif CPU
-cpuConfig := gopipeline.NewPipelineConfig().
-    SetMaxWorkers(runtime.NumCPU())
-
-// Traitement intensif I/O
-ioConfig := gopipeline.NewPipelineConfig().
-    SetMaxWorkers(runtime.NumCPU() * 2)
-```
-
-### 3. Gestion de la mémoire
-
-```go
-// Configuration économe en mémoire
-memoryEfficientConfig := gopipeline.NewPipelineConfig().
-    SetFlushSize(50).
-    SetChannelSize(100).
-    SetMaxWorkers(2)
-```
-
-## Surveillance et débogage
-
-### Obtention des métriques
-
-```go
-// Obtenir les métriques du pipeline
-metrics := pipeline.GetMetrics()
-fmt.Printf("Éléments traités : %d\n", metrics.ProcessedCount)
-fmt.Printf("Lots traités : %d\n", metrics.BatchCount)
-fmt.Printf("Erreurs : %d\n", metrics.ErrorCount)
-fmt.Printf("Temps de traitement moyen : %v\n", metrics.AvgProcessingTime)
-```
-
-### Logging détaillé
-
-```go
-pipeline := gopipeline.NewStandardPipeline[string](func(items []string) error {
-    log.Printf("Début du traitement du lot de %d éléments", len(items))
-    
-    for i, item := range items {
-        log.Printf("Traitement de l'élément %d/%d : %s", i+1, len(items), item)
-        // Logique de traitement
-    }
-    
-    log.Printf("Fin du traitement du lot")
-    return nil
-})
-```
-
-## Cas d'usage courants
-
-### 1. Insertion en base de données
-
-```go
-pipeline := gopipeline.NewStandardPipeline[User](func(users []User) error {
-    // Insertion en lot pour optimiser les performances
-    return db.CreateUsersInBatch(users)
-})
-
-// Ajouter des utilisateurs
-for _, user := range userList {
-    pipeline.Add(user)
-}
-```
-
-### 2. Traitement de fichiers
-
-```go
-pipeline := gopipeline.NewStandardPipeline[string](func(filePaths []string) error {
-    for _, path := range filePaths {
-        if err := processFile(path); err != nil {
-            log.Printf("Erreur lors du traitement de %s : %v", path, err)
-            // Continuer avec les autres fichiers
-        }
-    }
-    return nil
-})
-```
-
-### 3. Appels d'API
-
-```go
-pipeline := gopipeline.NewStandardPipeline[APIRequest](func(requests []APIRequest) error {
-    // Traitement par lots des requêtes API
-    return apiClient.ProcessBatch(requests)
-})
-```
-
-### 4. Traitement de logs
-
-```go
-pipeline := gopipeline.NewStandardPipeline[LogEntry](func(logs []LogEntry) error {
-    // Agrégation et traitement des logs
-    return logProcessor.ProcessBatch(logs)
-})
-```
-
-## Bonnes pratiques
-
-### 1. Gestion du cycle de vie
-
-```go
-func main() {
-    pipeline := gopipeline.NewStandardPipeline[int](processor)
-    
-    // Gestion gracieuse de l'arrêt
-    c := make(chan os.Signal, 1)
-    signal.Notify(c, os.Interrupt, syscall.SIGTERM)
-    
+    // Démarrer le traitement asynchrone
     go func() {
-        <-c
-        log.Println("Arrêt gracieux du pipeline...")
-        pipeline.Close()
-    }()
-    
-    // Ajouter des données
-    // ...
-    
-    // Attendre la fin
-    pipeline.Wait()
-    log.Println("Pipeline arrêté")
-}
-```
-
-### 2. Gestion des ressources
-
-```go
-pipeline := gopipeline.NewStandardPipeline[*os.File](func(files []*os.File) error {
-    // S'assurer que les ressources sont libérées
-    defer func() {
-        for _, file := range files {
-            if file != nil {
-                file.Close()
-            }
+        if err := pipeline.AsyncPerform(ctx); err != nil {
+            log.Printf("Erreur d'exécution du pipeline : %v", err)
         }
     }()
     
-    // Traitement des fichiers
-    return processFiles(files)
-})
-```
-
-### 3. Tests unitaires
-
-```go
-func TestStandardPipeline(t *testing.T) {
-    var processedItems []int
-    var mu sync.Mutex
+    // Écouter les erreurs
+    errorChan := pipeline.ErrorChan(10)
+    go func() {
+        for err := range errorChan {
+            log.Printf("Erreur de traitement : %v", err)
+        }
+    }()
     
-    pipeline := gopipeline.NewStandardPipeline[int](func(items []int) error {
-        mu.Lock()
-        defer mu.Unlock()
-        processedItems = append(processedItems, items...)
-        return nil
-    })
-    
-    // Ajouter des données de test
-    for i := 1; i <= 5; i++ {
-        pipeline.Add(i)
+    // Ajouter des données
+    dataChan := pipeline.DataChan()
+    for i := 0; i < 200; i++ {
+        dataChan <- fmt.Sprintf("data-%d", i)
     }
     
-    pipeline.Close()
-    pipeline.Wait()
+    // Fermer le canal de données
+    close(dataChan)
     
-    // Vérifier les résultats
-    assert.Equal(t, []int{1, 2, 3, 4, 5}, processedItems)
+    // Attendre la fin du traitement
+    time.Sleep(time.Second * 2)
 }
 ```
 
-## Dépannage
-
-### Problèmes courants
-
-1. **Fuite mémoire** : Vérifier que `Close()` et `Wait()` sont appelés
-2. **Performances lentes** : Ajuster `FlushSize` et `MaxWorkers`
-3. **Blocage** : Vérifier la logique de traitement pour les blocages potentiels
-4. **Perte de données** : S'assurer que `Wait()` est appelé avant la fin du programme
-
-### Débogage
+### Exemple d'insertion par lots en base de données
 
 ```go
-// Activer le logging détaillé
-pipeline := gopipeline.NewStandardPipelineWithConfig[int](
-    func(items []int) error {
-        log.Printf("Traitement de %d éléments", len(items))
-        return nil
-    },
-    gopipeline.NewPipelineConfig().SetDebug(true),
-)
+func batchInsertExample() {
+    // Créer un pipeline d'insertion par lots en base de données
+    pipeline := gopipeline.NewDefaultStandardPipeline(
+        func(ctx context.Context, users []User) error {
+            // Insertion par lots en base de données
+            return db.CreateInBatches(users, len(users)).Error
+        },
+    )
+    
+    ctx := context.Background()
+    
+    // Démarrer le pipeline
+    go pipeline.AsyncPerform(ctx)
+    
+    // Gestion d'erreurs
+    go func() {
+        for err := range pipeline.ErrorChan(10) {
+            log.Printf("Erreur d'insertion en base de données : %v", err)
+        }
+    }()
+    
+    // Ajouter des données utilisateur
+    dataChan := pipeline.DataChan()
+    for i := 0; i < 1000; i++ {
+        user := User{
+            Name:  fmt.Sprintf("user-%d", i),
+            Email: fmt.Sprintf("user%d@example.com", i),
+        }
+        dataChan <- user
+    }
+    
+    close(dataChan)
+}
+```
+
+### Exemple de traitement par lots d'appels API
+
+```go
+func apiCallExample() {
+    pipeline := gopipeline.NewStandardPipeline(
+        gopipeline.PipelineConfig{
+            FlushSize:     20,                     // 20 éléments par appel
+            FlushInterval: time.Millisecond * 200, // Intervalle de 200ms
+        },
+        func(ctx context.Context, requests []APIRequest) error {
+            // Appel API par lots
+            return batchCallAPI(requests)
+        },
+    )
+    
+    // Utiliser le pipeline...
+}
+```
+
+## Exécution synchrone vs asynchrone
+
+### Exécution asynchrone (recommandée)
+
+```go
+// Exécution asynchrone, ne bloque pas le thread principal
+go func() {
+    if err := pipeline.AsyncPerform(ctx); err != nil {
+        log.Printf("Erreur d'exécution du pipeline : %v", err)
+    }
+}()
+```
+
+### Exécution synchrone
+
+```go
+// Exécution synchrone, bloque jusqu'à la fin ou l'annulation
+if err := pipeline.SyncPerform(ctx); err != nil {
+    log.Printf("Erreur d'exécution du pipeline : %v", err)
+}
+```
+
+## Gestion d'erreurs
+
+Le pipeline standard fournit un mécanisme complet de gestion d'erreurs :
+
+```go
+// Créer un canal d'erreur
+errorChan := pipeline.ErrorChan(100) // Taille de tampon 100
+
+// Écouter les erreurs
+go func() {
+    for err := range errorChan {
+        // Gérer les erreurs
+        log.Printf("Erreur de traitement par lots : %v", err)
+        
+        // Peut gérer différents types d'erreurs différemment
+        switch e := err.(type) {
+        case *DatabaseError:
+            // Gestion d'erreur de base de données
+        case *NetworkError:
+            // Gestion d'erreur réseau
+        default:
+            // Gestion d'autres erreurs
+        }
+    }
+}()
+```
+
+## Recommandations d'optimisation des performances
+
+### 1. Définir une taille de lot raisonnable
+
+```go
+// Ajuster la taille du lot selon la capacité de traitement
+batchSizeConfig := gopipeline.PipelineConfig{
+    BufferSize:    200,                   // Taille du tampon
+    FlushSize:     100,                   // Des lots plus grands peuvent améliorer le débit
+    FlushInterval: time.Millisecond * 50, // Intervalle standard
+}
+```
+
+### 2. Ajuster la taille du tampon
+
+```go
+// Le tampon devrait être au moins 2x la taille du lot
+bufferSizeConfig := gopipeline.PipelineConfig{
+    BufferSize:    200,                   // FlushSize * 2
+    FlushSize:     100,                   // Taille du lot
+    FlushInterval: time.Millisecond * 50, // Intervalle standard
+}
+```
+
+### 3. Optimiser l'intervalle de vidage
+
+```go
+// Ajuster l'intervalle selon les exigences de latence
+// Configuration de faible latence
+configFaibleLatence := gopipeline.PipelineConfig{
+    BufferSize:    100,                   // Tampon modéré
+    FlushSize:     50,                    // Lot modéré
+    FlushInterval: time.Millisecond * 50, // Faible latence
+}
+
+// Configuration de haut débit
+configHautDebit := gopipeline.PipelineConfig{
+    BufferSize:    400,       // Grand tampon
+    FlushSize:     200,       // Grand lot
+    FlushInterval: time.Second, // Haut débit
+}
+```
+
+## Meilleures pratiques
+
+1. **Consommer rapidement le canal d'erreur** : Doit avoir une goroutine consommant le canal d'erreur, sinon peut causer un blocage
+2. **Fermer correctement les canaux** : Utiliser le principe "l'écrivain ferme" pour gérer le cycle de vie des canaux
+3. **Définir des timeouts raisonnables** : Utiliser le contexte pour contrôler le temps d'exécution du pipeline
+4. **Surveiller les performances** : Ajuster les paramètres de configuration selon les scénarios réels
+
+## Étapes suivantes
+
+- [Pipeline de déduplication](./deduplication-pipeline) - Apprendre le pipeline de traitement par lots avec déduplication
+- [Guide de configuration](./configuration) - Instructions détaillées des paramètres de configuration
+- [Référence API](./api-reference) - Documentation API complète
