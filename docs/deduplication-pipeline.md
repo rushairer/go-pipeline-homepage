@@ -61,13 +61,13 @@ pipeline := gopipeline.NewDefaultDeduplicationPipeline(
 ### 使用自定义配置
 
 ```go
-config := gopipeline.PipelineConfig{
+deduplicationConfig := gopipeline.PipelineConfig{
     BufferSize:    200,                    // 缓冲区大小
     FlushSize:     50,                     // 批处理大小
     FlushInterval: time.Millisecond * 100, // 刷新间隔
 }
 
-pipeline := gopipeline.NewDeduplicationPipeline(config,
+pipeline := gopipeline.NewDeduplicationPipeline(deduplicationConfig,
     // 唯一键函数
     func(data Product) string {
         return fmt.Sprintf("%s-%s", data.SKU, data.Version)
@@ -302,8 +302,10 @@ func(ctx context.Context, users []User) error {
 
 ```go
 // 较小的批次大小可以减少内存使用
-config := gopipeline.PipelineConfig{
-    FlushSize: 100, // 最多存储100个唯一项
+memoryOptimizedConfig := gopipeline.PipelineConfig{
+    BufferSize:    200,                   // 缓冲区大小
+    FlushSize:     100,                   // 最多存储100个唯一项
+    FlushInterval: time.Millisecond * 50, // 刷新间隔
 }
 ```
 

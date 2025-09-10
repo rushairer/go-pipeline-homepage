@@ -55,13 +55,13 @@ pipeline := gopipeline.NewDefaultStandardPipeline(
 ### 使用自定义配置
 
 ```go
-config := gopipeline.PipelineConfig{
+customConfig := gopipeline.PipelineConfig{
     BufferSize:    200,                    // 缓冲区大小
     FlushSize:     100,                    // 批处理大小
     FlushInterval: time.Millisecond * 100, // 刷新间隔
 }
 
-pipeline := gopipeline.NewStandardPipeline(config,
+pipeline := gopipeline.NewStandardPipeline(customConfig,
     func(ctx context.Context, batchData []string) error {
         // 处理批次数据
         return processData(batchData)
@@ -240,8 +240,10 @@ go func() {
 
 ```go
 // 根据处理能力调整批次大小
-config := gopipeline.PipelineConfig{
-    FlushSize: 100, // 较大的批次可以提高吞吐量
+batchSizeConfig := gopipeline.PipelineConfig{
+    BufferSize:    200,                   // 缓冲区大小
+    FlushSize:     100,                   // 较大的批次可以提高吞吐量
+    FlushInterval: time.Millisecond * 50, // 标准间隔
 }
 ```
 
@@ -249,9 +251,10 @@ config := gopipeline.PipelineConfig{
 
 ```go
 // 缓冲区应该至少是批次大小的2倍
-config := gopipeline.PipelineConfig{
-    BufferSize: 200, // FlushSize * 2
-    FlushSize:  100,
+bufferSizeConfig := gopipeline.PipelineConfig{
+    BufferSize:    200,                   // FlushSize * 2
+    FlushSize:     100,                   // 批次大小
+    FlushInterval: time.Millisecond * 50, // 标准间隔
 }
 ```
 
@@ -259,9 +262,17 @@ config := gopipeline.PipelineConfig{
 
 ```go
 // 根据延迟要求调整间隔
-config := gopipeline.PipelineConfig{
+// 低延迟配置
+lowLatencyConfig := gopipeline.PipelineConfig{
+    BufferSize:    100,                   // 适中缓冲区
+    FlushSize:     50,                    // 适中批次
     FlushInterval: time.Millisecond * 50, // 低延迟
-    // 或
+}
+
+// 高吞吐量配置
+highThroughputConfig := gopipeline.PipelineConfig{
+    BufferSize:    400,       // 大缓冲区
+    FlushSize:     200,       // 大批次
     FlushInterval: time.Second, // 高吞吐量
 }
 ```

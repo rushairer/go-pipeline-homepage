@@ -212,13 +212,13 @@ func NewStandardPipeline[T any](
 
 **使用示例**:
 ```go
-config := gopipeline.PipelineConfig{
+standardConfig := gopipeline.PipelineConfig{
     BufferSize:    200,
     FlushSize:     100,
     FlushInterval: time.Millisecond * 100,
 }
 
-pipeline := gopipeline.NewStandardPipeline(config,
+pipeline := gopipeline.NewStandardPipeline(standardConfig,
     func(ctx context.Context, batchData []string) error {
         return processData(batchData)
     },
@@ -292,12 +292,13 @@ func NewDeduplicationPipeline[T any](
 
 **使用示例**:
 ```go
-config := gopipeline.PipelineConfig{
+deduplicationConfig := gopipeline.PipelineConfig{
+    BufferSize:    100,
     FlushSize:     50,
     FlushInterval: time.Millisecond * 100,
 }
 
-pipeline := gopipeline.NewDeduplicationPipeline(config,
+pipeline := gopipeline.NewDeduplicationPipeline(deduplicationConfig,
     func(product Product) string {
         return fmt.Sprintf("%s-%s", product.SKU, product.Version)
     },

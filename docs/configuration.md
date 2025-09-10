@@ -28,6 +28,31 @@ const (
 )
 ```
 
+### 使用默认配置
+
+你可以使用 `NewPipelineConfig()` 函数创建带有默认值的配置，然后自定义特定参数：
+
+```go
+// 创建带有默认值的配置
+config := gopipeline.NewPipelineConfig()
+
+// 直接使用默认值
+pipeline := gopipeline.NewStandardPipeline(config, flushFunc)
+
+// 或者使用链式方法自定义特定参数
+config = gopipeline.NewPipelineConfig().
+    WithFlushInterval(time.Millisecond * 10).
+    WithBufferSize(200)
+
+pipeline = gopipeline.NewStandardPipeline(config, flushFunc)
+```
+
+可用的配置方法：
+- `NewPipelineConfig()` - 创建带有默认值的配置
+- `WithBufferSize(size uint32)` - 设置缓冲区大小
+- `WithFlushSize(size uint32)` - 设置批处理大小
+- `WithFlushInterval(interval time.Duration)` - 设置刷新间隔
+
 ## 配置参数详解
 
 ### BufferSize（缓冲区大小）
@@ -41,9 +66,10 @@ const (
 - 高并发场景可以适当增大
 
 ```go
-config := gopipeline.PipelineConfig{
-    BufferSize: 200, // 推荐为 FlushSize 的 2-4 倍
-    FlushSize:  50,
+standardConfig := gopipeline.PipelineConfig{
+    BufferSize:    200,                   // 推荐为 FlushSize 的 2-4 倍
+    FlushSize:     50,                    // 标准批次大小
+    FlushInterval: time.Millisecond * 50, // 标准刷新间隔
 }
 ```
 
@@ -65,13 +91,17 @@ config := gopipeline.PipelineConfig{
 ```go
 // 不同场景的配置示例
 // 高吞吐量场景
-config := gopipeline.PipelineConfig{
-    FlushSize: 200,
+highThroughputConfig := gopipeline.PipelineConfig{
+    BufferSize:    400,                   // 缓冲区大小为FlushSize的2倍
+    FlushSize:     200,                   // 大批次处理
+    FlushInterval: time.Millisecond * 100, // 适中间隔
 }
 
 // 低延迟场景
-config := gopipeline.PipelineConfig{
-    FlushSize: 20,
+lowLatencyConfig := gopipeline.PipelineConfig{
+    BufferSize:    50,                    // 小缓冲区
+    FlushSize:     20,                    // 小批次处理
+    FlushInterval: time.Millisecond * 10, // 短间隔
 }
 ```
 
@@ -93,13 +123,17 @@ config := gopipeline.PipelineConfig{
 ```go
 // 不同场景的配置示例
 // 低延迟场景
-config := gopipeline.PipelineConfig{
-    FlushInterval: time.Millisecond * 10,
+lowLatencyConfig := gopipeline.PipelineConfig{
+    BufferSize:    50,                    // 小缓冲区
+    FlushSize:     10,                    // 小批次
+    FlushInterval: time.Millisecond * 10, // 极短间隔
 }
 
 // 高吞吐量场景
-config := gopipeline.PipelineConfig{
-    FlushInterval: time.Second,
+highThroughputConfig := gopipeline.PipelineConfig{
+    BufferSize:    1000,              // 大缓冲区
+    FlushSize:     500,               // 大批次
+    FlushInterval: time.Second,       // 长间隔
 }
 ```
 
@@ -113,13 +147,13 @@ config := gopipeline.PipelineConfig{
 
 ```go
 // 数据库批量插入优化配置
-config := gopipeline.PipelineConfig{
+dbConfig := gopipeline.PipelineConfig{
     BufferSize:    500,                    // 较大缓冲区
     FlushSize:     100,                    // 适中批次大小
     FlushInterval: time.Millisecond * 200, // 适中延迟
 }
 
-pipeline := gopipeline.NewStandardPipeline(config,
+pipeline := gopipeline.NewStandardPipeline(dbConfig,
     func(ctx context.Context, records []Record) error {
         return db.CreateInBatches(records, len(records)).Error
     },
@@ -130,13 +164,13 @@ pipeline := gopipeline.NewStandardPipeline(config,
 
 ```go
 // API调用批处理配置
-config := gopipeline.PipelineConfig{
+apiConfig := gopipeline.PipelineConfig{
     BufferSize:    100,                   // 适中缓冲区
     FlushSize:     20,                    // 较小批次（避免API限制）
     FlushInterval: time.Millisecond * 50, // 低延迟
 }
 
-pipeline := gopipeline.NewStandardPipeline(config,
+pipeline := gopipeline.NewStandardPipeline(apiConfig,
     func(ctx context.Context, requests []APIRequest) error {
         return batchCallAPI(requests)
     },
@@ -147,13 +181,13 @@ pipeline := gopipeline.NewStandardPipeline(config,
 
 ```go
 // 日志批量写入配置
-config := gopipeline.PipelineConfig{
+logConfig := gopipeline.PipelineConfig{
     BufferSize:    1000,               // 大缓冲区（日志量大）
     FlushSize:     200,                // 大批次
     FlushInterval: time.Millisecond * 100, // 适中延迟
 }
 
-pipeline := gopipeline.NewStandardPipeline(config,
+pipeline := gopipeline.NewStandardPipeline(logConfig,
     func(ctx context.Context, logs []LogEntry) error {
         return writeLogsToFile(logs)
     },
@@ -164,13 +198,13 @@ pipeline := gopipeline.NewStandardPipeline(config,
 
 ```go
 // 实时数据处理配置
-config := gopipeline.PipelineConfig{
+realtimeConfig := gopipeline.PipelineConfig{
     BufferSize:    50,                    // 小缓冲区
     FlushSize:     10,                    // 小批次
     FlushInterval: time.Millisecond * 10, // 极低延迟
 }
 
-pipeline := gopipeline.NewStandardPipeline(config,
+pipeline := gopipeline.NewStandardPipeline(realtimeConfig,
     func(ctx context.Context, events []Event) error {
         return processRealTimeEvents(events)
     },
@@ -306,7 +340,8 @@ func (dp *DynamicPipeline) UpdateConfig(newConfig gopipeline.PipelineConfig) err
 **解决方案**:
 ```go
 // 减小刷新间隔和批次大小
-config := gopipeline.PipelineConfig{
+lowLatencyConfig := gopipeline.PipelineConfig{
+    BufferSize:    50,                    // 适配小批次的缓冲区
     FlushSize:     20,                    // 减小批次
     FlushInterval: time.Millisecond * 10, // 减小间隔
 }
@@ -324,15 +359,25 @@ config := gopipeline.PipelineConfig{
 **解决方案**:
 ```go
 // 减小缓冲区和批次大小
-config := gopipeline.PipelineConfig{
-    BufferSize: 50,  // 减小缓冲区
-    FlushSize:  25,  // 减小批次
+memoryOptimizedConfig := gopipeline.PipelineConfig{
+    BufferSize:    50,                    // 减小缓冲区
+    FlushSize:     25,                    // 减小批次
+    FlushInterval: time.Millisecond * 50, // 保持适中间隔
 }
 
 // 确保消费错误通道
+errorChan := pipeline.ErrorChan(10)
 go func() {
-    for err := range pipeline.ErrorChan(10) {
-        log.Printf("Error: %v", err)
+    for {
+        select {
+        case err, ok := <-errorChan:
+            if !ok {
+                return
+            }
+            log.Printf("Error: %v", err)
+        case <-ctx.Done():
+            return
+        }
     }
 }()
 ```
@@ -349,9 +394,9 @@ go func() {
 **解决方案**:
 ```go
 // 增大批次大小和缓冲区
-config := gopipeline.PipelineConfig{
-    BufferSize:    500,                   // 增大缓冲区
-    FlushSize:     100,                   // 增大批次
+highThroughputConfig := gopipeline.PipelineConfig{
+    BufferSize:    500,                    // 增大缓冲区
+    FlushSize:     100,                    // 增大批次
     FlushInterval: time.Millisecond * 100, // 适中间隔
 }
 ```
