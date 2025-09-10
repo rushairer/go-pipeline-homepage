@@ -1,16 +1,17 @@
 <svg width="32" height="32" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
-  <!-- 与网站主题一致的绿色logo设计 -->
-  <rect width="32" height="32" rx="6" fill="#3578e5"/>
+  <!-- 与网站主题一致的蓝色logo设计 -->
+  <rect width="32" height="32" rx="10" fill="#3578e5"/>
   
-  <!-- 管道符号 -->
-  <path d="M8 12h4v8H8z" fill="white"/>
-  <path d="M14 10h4v12h-4z" fill="white"/>
-  <path d="M20 8h4v16h-4z" fill="white"/>
+  <!-- 管道符号 - 圆角矩形，向左调整 -->
+  <rect x="6" y="12" width="4" height="8" rx="2" fill="white"/>
+  <rect x="12" y="10" width="4" height="12" rx="2" fill="white"/>
+  <rect x="18" y="8" width="4" height="16" rx="2" fill="white"/>
   
-  <!-- 连接线 -->
-  <path d="M12 16h2" stroke="white" stroke-width="2"/>
-  <path d="M18 16h2" stroke="white" stroke-width="2"/>
+  <!-- 连接线 - 圆角，调整位置 -->
+  <path d="M10 16h2" stroke="white" stroke-width="2" stroke-linecap="round"/>
+  <path d="M16 16h2" stroke="white" stroke-width="2" stroke-linecap="round"/>
   
-  <!-- 数据流箭头 -->
-  <path d="M26 15l2 1-2 1v-2z" fill="white"/>
+  <!-- 数据流箭头 - 更圆润，向左调整 -->
+  <path d="M22 16h4" stroke="white" stroke-width="2" stroke-linecap="round"/>
+  <path d="M25 14l2 2-2 2" stroke="white" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
 </svg>

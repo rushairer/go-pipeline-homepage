@@ -21,13 +21,18 @@ const config: Config = {
   onBrokenLinks: 'throw',
   onBrokenMarkdownLinks: 'warn',
 
-  // 设置网站语言为中文
+  // 设置网站多语言支持
   i18n: {
     defaultLocale: 'zh',
-    locales: ['zh'],
+    locales: ['zh', 'en'],
     localeConfigs: {
       zh: {
         label: '中文',
+        direction: 'ltr',
+      },
+      en: {
+        label: 'English',
+        direction: 'ltr',
       },
     },
   },
@@ -79,13 +84,15 @@ const config: Config = {
           position: 'left',
           label: '文档',
         },
-
+        {
+          type: 'localeDropdown',
+          position: 'right',
+        },
         {
           href: 'https://github.com/rushairer/go-pipeline',
           label: 'GitHub',
           position: 'right',
         },
-
       ],
     },
     footer: {
@@ -131,6 +138,11 @@ const config: Config = {
       theme: prismThemes.github,
       darkTheme: prismThemes.dracula,
       additionalLanguages: ['go'],
+    },
+    colorMode: {
+      defaultMode: 'dark',
+      disableSwitch: false,
+      respectPrefersColorScheme: false,
     },
   } satisfies Preset.ThemeConfig,
 };
