@@ -13,7 +13,7 @@ const FeatureList = [
     Svg: require('@site/static/img/performance.svg').default,
     description: translate({
       id: 'homepage.features.generics.description',
-      message: '基于 Go 1.18+ 泛型的类型安全实现，支持任意数据类型，提供编译时类型检查。',
+      message: '基于 Go 1.20+ 泛型的类型安全实现，支持任意数据类型，提供编译时类型检查。',
       description: 'Description for generics feature'
     }),
   },

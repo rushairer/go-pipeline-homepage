@@ -402,7 +402,7 @@
     "description": "Title for generics feature"
   },
   "homepage.features.generics.description": {
-    "message": "Implémentation type-safe basée sur les génériques Go 1.18+, support de tout type de données, avec vérification de type à la compilation.",
+    "message": "Implémentation type-safe basée sur les génériques Go 1.20+, support de tout type de données, avec vérification de type à la compilation.",
     "description": "Description for generics feature"
   },
   "homepage.features.batch.title": {

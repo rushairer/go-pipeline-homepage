@@ -10,9 +10,13 @@ sidebar_position: 4
 
 ```go
 type PipelineConfig struct {
-    BufferSize    uint32        // 缓冲通道的容量
-    FlushSize     uint32        // 批处理数据的最大容量
-    FlushInterval time.Duration // 定时刷新的时间间隔
+    BufferSize               uint32        // 缓冲通道的容量
+    FlushSize                uint32        // 批处理数据的最大容量
+    FlushInterval            time.Duration // 定时刷新的时间间隔
+    DrainOnCancel            bool          // 取消时是否进行限时收尾刷新（默认 false）
+    DrainGracePeriod         time.Duration // 收尾刷新最长时间窗口
+    FinalFlushOnCloseTimeout time.Duration // 通道关闭路径的最终 flush 超时（0 表示禁用）
+    MaxConcurrentFlushes     uint32        // 异步 flush 的最大并发数（0 表示不限制）
 }
 ```
 
@@ -52,6 +56,11 @@ pipeline = gopipeline.NewStandardPipeline(config, flushFunc)
 - `WithBufferSize(size uint32)` - 设置缓冲区大小
 - `WithFlushSize(size uint32)` - 设置批处理大小
 - `WithFlushInterval(interval time.Duration)` - 设置刷新间隔
+- `WithDrainOnCancel(enabled bool)` - 启用取消时的限时收尾
+- `WithDrainGracePeriod(d time.Duration)` - 设置收尾刷新最长时间窗口
+- `WithFinalFlushOnCloseTimeout(d time.Duration)` - 设置通道关闭路径的最终 flush 超时
+- `WithMaxConcurrentFlushes(n uint32)` - 限制异步 flush 并发（0 表示不限制）
+- `ValidateOrDefault()` - 校验并回退到安全默认
 
 ## 配置参数详解
 
@@ -108,6 +117,64 @@ lowLatencyConfig := gopipeline.PipelineConfig{
 **影响**:
 - 过小：增加处理频率，降低吞吐量
 - 过大：增加延迟和内存使用
+
+### DrainOnCancel（取消收尾）
+
+**作用**: 控制上下文取消时是否进行限时收尾刷新
+
+**默认值**: false
+
+**建议值**: 
+- 数据完整性优先：true
+- 快速停止优先：false
+
+```go
+// 启用取消收尾的配置
+gracefulConfig := gopipeline.NewPipelineConfig().
+    WithDrainOnCancel(true).
+    WithDrainGracePeriod(150 * time.Millisecond)
+```
+
+### DrainGracePeriod（收尾时间窗口）
+
+**作用**: 当启用 DrainOnCancel 时的收尾 flush 最长时间窗口
+
+**默认值**: 100ms（内部默认）
+
+**建议值**: 50-200ms
+
+### FinalFlushOnCloseTimeout（最终刷新超时）
+
+**作用**: 通道关闭路径的最终 flush 超时保护
+
+**默认值**: 0（禁用）
+
+**建议值**: 
+- 启用保护：150ms-1s
+- 禁用保护：0
+
+```go
+// 启用最终刷新超时保护
+config := gopipeline.NewPipelineConfig().
+    WithFinalFlushOnCloseTimeout(500 * time.Millisecond)
+```
+
+### MaxConcurrentFlushes（并发限制）
+
+**作用**: 限制异步 flush 的最大并发数
+
+**默认值**: 0（不限制）
+
+**建议值**:
+- CPU密集型：CPU核数
+- IO密集型：CPU核数 * 2-4
+- 不限制：0
+
+```go
+// 限制并发flush数量
+config := gopipeline.NewPipelineConfig().
+    WithMaxConcurrentFlushes(uint32(runtime.NumCPU()))
+```
 
 ### FlushInterval（刷新间隔）
 
@@ -277,6 +344,57 @@ func monitorPipeline(pipeline Pipeline[Data]) {
     }
 }
 ```
+
+## 动态参数调整
+
+v2.2.2 新增运行时动态调整功能，支持安全地调整关键参数：
+
+### 支持的动态参数
+
+- `UpdateFlushSize(n uint32)` - 调整批次大小
+- `UpdateFlushInterval(d time.Duration)` - 调整刷新间隔
+
+### 使用示例
+
+```go
+// 基本动态调整
+pipeline.UpdateFlushSize(128)
+pipeline.UpdateFlushInterval(25 * time.Millisecond)
+
+// 根据系统负载动态调整
+func adaptiveConfig(pipeline *gopipeline.StandardPipeline[Data]) {
+    ticker := time.NewTicker(time.Second * 30)
+    defer ticker.Stop()
+    
+    for range ticker.C {
+        load := getSystemLoad()
+        memUsage := getMemoryUsage()
+        
+        switch {
+        case load > 0.8:
+            // 高负载：减小批次，增加频率
+            pipeline.UpdateFlushSize(25)
+            pipeline.UpdateFlushInterval(25 * time.Millisecond)
+            
+        case memUsage > 0.7:
+            // 高内存使用：减小批次
+            pipeline.UpdateFlushSize(30)
+            pipeline.UpdateFlushInterval(50 * time.Millisecond)
+            
+        default:
+            // 正常情况：使用标准配置
+            pipeline.UpdateFlushSize(50)
+            pipeline.UpdateFlushInterval(50 * time.Millisecond)
+        }
+    }
+}
+```
+
+### 注意事项
+
+- FlushSize 的变化不会影响正在构建的批次
+- FlushInterval 更新在下一次定时重置时生效
+- 所有动态调整都是线程安全的
 
 ## 配置验证
 

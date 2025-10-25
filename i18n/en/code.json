@@ -24,7 +24,7 @@
     "description": "Title for generics feature"
   },
   "homepage.features.generics.description": {
-    "message": "Type-safe implementation based on Go 1.18+ generics, supporting any data type with compile-time type checking.",
+    "message": "Type-safe implementation based on Go 1.20+ generics, supporting any data type with compile-time type checking.",
     "description": "Description for generics feature"
   },
   "homepage.features.batch.title": {

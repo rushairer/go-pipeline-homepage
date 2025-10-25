@@ -30,7 +30,11 @@ type PipelineChannel[T any] interface {
     DataChan() chan<- T
     
     // ErrorChan 返回一个只读的通道，用于接收管道中的错误信息
+    // 首次调用决定缓冲区大小，后续调用的 size 将被忽略
     ErrorChan(size int) <-chan error
+    
+    // Done 返回一个只读通道，当管道执行完成时关闭
+    Done() <-chan struct{}
 }
 ```
 
@@ -77,6 +81,12 @@ type Performer[T any] interface {
     
     // SyncPerform 同步执行管道操作
     SyncPerform(ctx context.Context) error
+    
+    // Start 便捷API：异步启动并返回完成通道和错误通道
+    Start(ctx context.Context) (<-chan struct{}, <-chan error)
+    
+    // Run 便捷API：同步运行并设置错误通道容量
+    Run(ctx context.Context, errBuf int) error
 }
 ```
 
@@ -120,6 +130,53 @@ if err := pipeline.SyncPerform(ctx); err != nil {
 }
 ```
 
+#### Start(ctx context.Context) (v2.2.2新增)
+
+便捷API：异步启动管道并返回完成通道和错误通道。
+
+**参数**:
+- `ctx context.Context` - 上下文对象
+
+**返回值**: 
+- `<-chan struct{}` - 完成通道，管道执行完成时关闭
+- `<-chan error` - 错误通道，用于接收错误
+
+**使用示例**:
+```go
+done, errs := pipeline.Start(ctx)
+
+// 监听错误
+go func() {
+    for err := range errs {
+        log.Printf("Pipeline error: %v", err)
+    }
+}()
+
+// 等待完成
+<-done
+```
+
+#### Run(ctx context.Context, errBuf int) (v2.2.2新增)
+
+便捷API：同步运行管道并设置错误通道容量。
+
+**参数**:
+- `ctx context.Context` - 上下文对象
+- `errBuf int` - 错误通道缓冲区大小
+
+**返回值**: `error` - 执行错误或取消错误
+
+**使用示例**:
+```go
+if err := pipeline.Run(ctx, 128); err != nil {
+    if errors.Is(err, gopipeline.ErrContextIsClosed) {
+        log.Println("Pipeline was canceled")
+    } else {
+        log.Printf("Pipeline execution error: %v", err)
+    }
+}
+```
+
 ### DataProcessor[T any]
 
 定义批处理数据的核心接口（主要用于内部实现）。
@@ -142,9 +199,13 @@ type DataProcessor[T any] interface {
 
 ```go
 type PipelineConfig struct {
-    BufferSize    uint32        // 缓冲通道的容量 (默认: 100)
-    FlushSize     uint32        // 批处理数据的最大容量 (默认: 50)
-    FlushInterval time.Duration // 定时刷新的时间间隔 (默认: 50ms)
+    BufferSize               uint32        // 缓冲通道的容量 (默认: 100)
+    FlushSize                uint32        // 批处理数据的最大容量 (默认: 50)
+    FlushInterval            time.Duration // 定时刷新的时间间隔 (默认: 50ms)
+    DrainOnCancel            bool          // 取消时是否进行限时收尾刷新（默认 false）
+    DrainGracePeriod         time.Duration // 收尾刷新最长时间窗口
+    FinalFlushOnCloseTimeout time.Duration // 通道关闭路径的最终 flush 超时（0 表示禁用）
+    MaxConcurrentFlushes     uint32        // 异步 flush 的最大并发数（0 表示不限制）
 }
 ```
 
@@ -152,6 +213,27 @@ type PipelineConfig struct {
 - `BufferSize`: 内部数据通道的缓冲区大小
 - `FlushSize`: 每次批处理的最大数据量
 - `FlushInterval`: 定时触发批处理的时间间隔
+- `DrainOnCancel`: 上下文取消时是否进行限时收尾刷新
+- `DrainGracePeriod`: 收尾刷新的最长时间窗口
+- `FinalFlushOnCloseTimeout`: 通道关闭时最终flush的超时保护
+- `MaxConcurrentFlushes`: 异步flush的最大并发数限制
+
+### 配置构建方法
+
+```go
+// 创建默认配置
+func NewPipelineConfig() PipelineConfig
+
+// 链式配置方法
+func (c PipelineConfig) WithBufferSize(size uint32) PipelineConfig
+func (c PipelineConfig) WithFlushSize(size uint32) PipelineConfig
+func (c PipelineConfig) WithFlushInterval(interval time.Duration) PipelineConfig
+func (c PipelineConfig) WithDrainOnCancel(enabled bool) PipelineConfig
+func (c PipelineConfig) WithDrainGracePeriod(d time.Duration) PipelineConfig
+func (c PipelineConfig) WithFinalFlushOnCloseTimeout(d time.Duration) PipelineConfig
+func (c PipelineConfig) WithMaxConcurrentFlushes(n uint32) PipelineConfig
+func (c PipelineConfig) ValidateOrDefault() PipelineConfig
+```
 
 ## 标准管道 API
 
@@ -227,85 +309,138 @@ pipeline := gopipeline.NewStandardPipeline(standardConfig,
 
 ## 去重管道 API
 
-### 类型定义
+### 接口定义
 
 ```go
-type KeyFunc[T any] func(T) string
-type FlushDeduplicationFunc[T any] func(ctx context.Context, batchData []T) error
+// UniqueKeyData 定义可提供唯一键的数据接口
+type UniqueKeyData interface {
+    GetKey() string
+}
 
-type DeduplicationPipeline[T any] struct {
+type FlushDeduplicationFunc[T UniqueKeyData] func(ctx context.Context, batchData map[string]T) error
+
+type DeduplicationPipeline[T UniqueKeyData] struct {
     *PipelineImpl[T]
-    keyFunc   KeyFunc[T]
     flushFunc FlushDeduplicationFunc[T]
 }
 ```
 
 ### 构造函数
 
-#### NewDefaultDeduplicationPipeline[T any]
+#### NewDefaultDeduplicationPipeline[T UniqueKeyData]
 
 使用默认配置创建去重管道。
 
 ```go
-func NewDefaultDeduplicationPipeline[T any](
-    keyFunc KeyFunc[T],
+func NewDefaultDeduplicationPipeline[T UniqueKeyData](
     flushFunc FlushDeduplicationFunc[T],
 ) *DeduplicationPipeline[T]
 ```
 
 **参数**:
-- `keyFunc KeyFunc[T]` - 唯一键生成函数
-- `flushFunc FlushDeduplicationFunc[T]` - 批处理函数
+- `flushFunc FlushDeduplicationFunc[T]` - 批处理函数，接收去重后的map数据
 
 **返回值**: `*DeduplicationPipeline[T]` - 去重管道实例
 
 **使用示例**:
 ```go
+type User struct {
+    ID    int
+    Name  string
+    Email string
+}
+
+func (u User) GetKey() string {
+    return u.Email
+}
+
 pipeline := gopipeline.NewDefaultDeduplicationPipeline(
-    func(user User) string {
-        return user.Email // 使用邮箱作为唯一键
-    },
-    func(ctx context.Context, users []User) error {
+    func(ctx context.Context, users map[string]User) error {
         return processUsers(users)
     },
 )
 ```
 
-#### NewDeduplicationPipeline[T any]
+#### NewDeduplicationPipeline[T UniqueKeyData]
 
 使用自定义配置创建去重管道。
 
 ```go
-func NewDeduplicationPipeline[T any](
+func NewDeduplicationPipeline[T UniqueKeyData](
     config PipelineConfig,
-    keyFunc KeyFunc[T],
     flushFunc FlushDeduplicationFunc[T],
 ) *DeduplicationPipeline[T]
 ```
 
 **参数**:
 - `config PipelineConfig` - 自定义配置
-- `keyFunc KeyFunc[T]` - 唯一键生成函数
-- `flushFunc FlushDeduplicationFunc[T]` - 批处理函数
+- `flushFunc FlushDeduplicationFunc[T]` - 批处理函数，接收去重后的map数据
 
 **返回值**: `*DeduplicationPipeline[T]` - 去重管道实例
 
 **使用示例**:
 ```go
-deduplicationConfig := gopipeline.PipelineConfig{
-    BufferSize:    100,
-    FlushSize:     50,
-    FlushInterval: time.Millisecond * 100,
+type Product struct {
+    SKU     string
+    Name    string
+    Version string
+    Price   float64
 }
 
+func (p Product) GetKey() string {
+    return fmt.Sprintf("%s-%s", p.SKU, p.Version)
+}
+
+deduplicationConfig := gopipeline.NewPipelineConfig().
+    WithBufferSize(100).
+    WithFlushSize(50).
+    WithFlushInterval(time.Millisecond * 100)
+
 pipeline := gopipeline.NewDeduplicationPipeline(deduplicationConfig,
-    func(product Product) string {
-        return fmt.Sprintf("%s-%s", product.SKU, product.Version)
-    },
-    func(ctx context.Context, products []Product) error {
+    func(ctx context.Context, products map[string]Product) error {
         return updateProducts(products)
     },
 )
+```
+
+## 动态调参API (v2.2.2新增)
+
+### UpdateFlushSize
+
+运行时调整批次大小。
+
+```go
+func (p *PipelineImpl[T]) UpdateFlushSize(n uint32)
+```
+
+**参数**:
+- `n uint32` - 新的批次大小
+
+**使用示例**:
+```go
+// 根据系统负载动态调整
+if systemLoad > 0.8 {
+    pipeline.UpdateFlushSize(25) // 高负载时减小批次
+} else {
+    pipeline.UpdateFlushSize(50) // 正常负载时使用标准批次
+}
+```
+
+### UpdateFlushInterval
+
+运行时调整刷新间隔。
+
+```go
+func (p *PipelineImpl[T]) UpdateFlushInterval(d time.Duration)
+```
+
+**参数**:
+- `d time.Duration` - 新的刷新间隔
+
+**使用示例**:
+```go
+// 动态调整刷新间隔
+pipeline.UpdateFlushInterval(25 * time.Millisecond)
 ```
 
 ## 错误类型
@@ -331,44 +466,67 @@ func (e *PipelineError) Unwrap() error {
 
 ### 常见错误
 
-- `ErrPipelineClosed`: 管道已关闭
-- `ErrContextCanceled`: 上下文被取消
-- `ErrFlushTimeout`: 刷新操作超时
+- `ErrContextIsClosed`: 上下文已关闭
+- `ErrContextDrained`: 取消时已执行限时收尾flush
+- `ErrAlreadyRunning`: 管道已在运行中（禁止并发启动）
+- `ErrPerformLoopError`: 执行循环错误
+- `ErrChannelIsClosed`: 通道已关闭
 
 ## 使用模式
 
-### 基本使用模式
+### 便捷API使用模式（推荐）
 
 ```go
 // 1. 创建管道
 pipeline := gopipeline.NewDefaultStandardPipeline(flushFunc)
 
-// 2. 启动异步处理
+// 2. 使用便捷API启动
 ctx, cancel := context.WithCancel(context.Background())
 defer cancel()
 
-go func() {
-    if err := pipeline.AsyncPerform(ctx); err != nil {
-        log.Printf("Pipeline error: %v", err)
-    }
-}()
+done, errs := pipeline.Start(ctx)
 
 // 3. 监听错误
 go func() {
-    for err := range pipeline.ErrorChan(10) {
+    for err := range errs {
         log.Printf("Processing error: %v", err)
     }
 }()
 
 // 4. 添加数据
 dataChan := pipeline.DataChan()
-for _, data := range inputData {
-    dataChan <- data
-}
+go func() {
+    defer close(dataChan) // 谁写谁关闭
+    for _, data := range inputData {
+        select {
+        case dataChan <- data:
+        case <-ctx.Done():
+            return
+        }
+    }
+}()
 
-// 5. 关闭并等待完成
-close(dataChan)
-time.Sleep(time.Second) // 等待处理完成
+// 5. 等待完成
+<-done
+```
+
+### 同步运行模式
+
+```go
+// 创建管道
+pipeline := gopipeline.NewDefaultStandardPipeline(flushFunc)
+
+// 同步运行
+ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+defer cancel()
+
+if err := pipeline.Run(ctx, 128); err != nil {
+    if errors.Is(err, gopipeline.ErrContextIsClosed) {
+        log.Println("Pipeline was canceled")
+    } else {
+        log.Printf("Pipeline error: %v", err)
+    }
+}
 ```
 
 ### 优雅关闭模式
@@ -443,9 +601,17 @@ func handlePipelineErrors(pipeline Pipeline[Data]) {
 
 ## 版本兼容性
 
-Go Pipeline v2 要求：
-- Go 1.18+ (泛型支持)
-- 向后兼容 Go 1.18-1.21
+Go Pipeline v2.2.2 要求：
+- Go 1.20+ (泛型支持)
+- 向后兼容 Go 1.20-1.22
+
+### v2.2.2 新增功能
+
+- **便捷API**: `Start()` 和 `Run()` 方法
+- **动态调参**: `UpdateFlushSize()` 和 `UpdateFlushInterval()`
+- **优雅关闭**: `DrainOnCancel` 和 `FinalFlushOnCloseTimeout`
+- **并发控制**: `MaxConcurrentFlushes`
+- **去重管道改进**: 使用 `UniqueKeyData` 接口
 
 ## 下一步
 

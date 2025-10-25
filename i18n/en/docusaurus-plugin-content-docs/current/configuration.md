@@ -10,9 +10,13 @@ This document provides detailed information about Go Pipeline v2 configuration p
 
 ```go
 type PipelineConfig struct {
-    BufferSize    uint32        // Buffer channel capacity
-    FlushSize     uint32        // Maximum capacity of batch processing data
-    FlushInterval time.Duration // Time interval for timed refresh
+    BufferSize               uint32        // Buffer channel capacity
+    FlushSize                uint32        // Maximum capacity for batch processing data
+    FlushInterval            time.Duration // Time interval for timed refresh
+    DrainOnCancel            bool          // Whether to perform limited-time cleanup flush on cancellation (default false)
+    DrainGracePeriod         time.Duration // Maximum time window for cleanup flush
+    FinalFlushOnCloseTimeout time.Duration // Final flush timeout for channel close path (0 means disabled)
+    MaxConcurrentFlushes     uint32        // Maximum concurrent async flushes (0 means unlimited)
 }
 ```
 
@@ -39,7 +43,7 @@ config := gopipeline.NewPipelineConfig()
 // Use default values directly
 pipeline := gopipeline.NewStandardPipeline(config, flushFunc)
 
-// Or use chaining methods to customize specific parameters
+// Or use chain methods to customize specific parameters
 config = gopipeline.NewPipelineConfig().
     WithFlushInterval(time.Millisecond * 10).
     WithBufferSize(200)
@@ -52,18 +56,23 @@ Available configuration methods:
 - `WithBufferSize(size uint32)` - Set buffer size
 - `WithFlushSize(size uint32)` - Set batch size
 - `WithFlushInterval(interval time.Duration)` - Set flush interval
+- `WithDrainOnCancel(enabled bool)` - Enable limited-time cleanup on cancellation
+- `WithDrainGracePeriod(d time.Duration)` - Set maximum time window for cleanup flush
+- `WithFinalFlushOnCloseTimeout(d time.Duration)` - Set final flush timeout for channel close path
+- `WithMaxConcurrentFlushes(n uint32)` - Limit async flush concurrency (0 means unlimited)
+- `ValidateOrDefault()` - Validate and fallback to safe defaults
 
-## Configuration Parameters Details
+## Configuration Parameter Details
 
 ### BufferSize (Buffer Size)
 
-**Purpose**: Controls the buffer size of internal data channel
+**Purpose**: Controls the buffer size of internal data channels
 
-**Default Value**: 100
+**Default**: 100
 
 **Recommended Values**: 
 - Should be >= FlushSize * 2 to avoid blocking
-- Can be appropriately increased for high concurrency scenarios
+- Can be increased appropriately for high concurrency scenarios
 
 ```go
 standardConfig := gopipeline.PipelineConfig{
@@ -81,7 +90,7 @@ standardConfig := gopipeline.PipelineConfig{
 
 **Purpose**: Controls the amount of data in each batch processing
 
-**Default Value**: 50
+**Default**: 50
 
 **Recommended Values**:
 - General scenarios: 20-100
@@ -109,11 +118,69 @@ lowLatencyConfig := gopipeline.PipelineConfig{
 - Too small: Increases processing frequency, reduces throughput
 - Too large: Increases latency and memory usage
 
+### DrainOnCancel (Cancellation Cleanup)
+
+**Purpose**: Controls whether to perform limited-time cleanup flush when context is cancelled
+
+**Default**: false
+
+**Recommended Values**: 
+- Data integrity priority: true
+- Fast stop priority: false
+
+```go
+// Configuration enabling cancellation cleanup
+gracefulConfig := gopipeline.NewPipelineConfig().
+    WithDrainOnCancel(true).
+    WithDrainGracePeriod(150 * time.Millisecond)
+```
+
+### DrainGracePeriod (Cleanup Time Window)
+
+**Purpose**: Maximum time window for cleanup flush when DrainOnCancel is enabled
+
+**Default**: 100ms (internal default)
+
+**Recommended Values**: 50-200ms
+
+### FinalFlushOnCloseTimeout (Final Flush Timeout)
+
+**Purpose**: Final flush timeout protection for channel close path
+
+**Default**: 0 (disabled)
+
+**Recommended Values**: 
+- Enable protection: 150ms-1s
+- Disable protection: 0
+
+```go
+// Enable final flush timeout protection
+config := gopipeline.NewPipelineConfig().
+    WithFinalFlushOnCloseTimeout(500 * time.Millisecond)
+```
+
+### MaxConcurrentFlushes (Concurrency Limit)
+
+**Purpose**: Limits the maximum number of concurrent async flushes
+
+**Default**: 0 (unlimited)
+
+**Recommended Values**:
+- CPU-intensive: Number of CPU cores
+- IO-intensive: CPU cores * 2-4
+- Unlimited: 0
+
+```go
+// Limit concurrent flush count
+config := gopipeline.NewPipelineConfig().
+    WithMaxConcurrentFlushes(uint32(runtime.NumCPU()))
+```
+
 ### FlushInterval (Flush Interval)
 
 **Purpose**: Controls the time interval for timed refresh
 
-**Default Value**: 50ms
+**Default**: 50ms
 
 **Recommended Values**:
 - Low latency scenarios: 10-50ms
@@ -141,12 +208,12 @@ highThroughputConfig := gopipeline.PipelineConfig{
 - Too small: Increases CPU usage, may cause frequent small batch processing
 - Too large: Increases data processing latency
 
-## Scenario-Based Configuration
+## Scenario-based Configuration
 
 ### Database Batch Insert
 
 ```go
-// Database batch insert optimization configuration
+// Database batch insert optimized configuration
 dbConfig := gopipeline.PipelineConfig{
     BufferSize:    500,                    // Larger buffer
     FlushSize:     100,                    // Moderate batch size
@@ -278,6 +345,57 @@ func monitorPipeline(pipeline Pipeline[Data]) {
 }
 ```
 
+## Dynamic Parameter Adjustment
+
+v2.2.2 adds runtime dynamic adjustment functionality, supporting safe adjustment of key parameters:
+
+### Supported Dynamic Parameters
+
+- `UpdateFlushSize(n uint32)` - Adjust batch size
+- `UpdateFlushInterval(d time.Duration)` - Adjust flush interval
+
+### Usage Examples
+
+```go
+// Basic dynamic adjustment
+pipeline.UpdateFlushSize(128)
+pipeline.UpdateFlushInterval(25 * time.Millisecond)
+
+// Dynamic adjustment based on system load
+func adaptiveConfig(pipeline *gopipeline.StandardPipeline[Data]) {
+    ticker := time.NewTicker(time.Second * 30)
+    defer ticker.Stop()
+    
+    for range ticker.C {
+        load := getSystemLoad()
+        memUsage := getMemoryUsage()
+        
+        switch {
+        case load > 0.8:
+            // High load: reduce batch, increase frequency
+            pipeline.UpdateFlushSize(25)
+            pipeline.UpdateFlushInterval(25 * time.Millisecond)
+            
+        case memUsage > 0.7:
+            // High memory usage: reduce batch
+            pipeline.UpdateFlushSize(30)
+            pipeline.UpdateFlushInterval(50 * time.Millisecond)
+            
+        default:
+            // Normal situation: use standard configuration
+            pipeline.UpdateFlushSize(50)
+            pipeline.UpdateFlushInterval(50 * time.Millisecond)
+        }
+    }
+}
+```
+
+### Notes
+
+- FlushSize changes do not affect batches currently being built
+- FlushInterval updates take effect at the next timer reset
+- All dynamic adjustments are thread-safe
+
 ## Configuration Validation
 
 ### Configuration Reasonableness Check
@@ -328,7 +446,7 @@ func (dp *DynamicPipeline) UpdateConfig(newConfig gopipeline.PipelineConfig) err
 
 ## Common Issues and Solutions
 
-### Issue 1: High Data Processing Latency
+### Issue 1: Data Processing Latency Too High
 
 **Symptoms**: Time from data addition to processing completion is too long
 
@@ -341,19 +459,19 @@ func (dp *DynamicPipeline) UpdateConfig(newConfig gopipeline.PipelineConfig) err
 ```go
 // Reduce flush interval and batch size
 lowLatencyConfig := gopipeline.PipelineConfig{
-    BufferSize:    50,                    // Buffer adapted to small batches
-    FlushSize:     20,                    // Reduce batch size
+    BufferSize:    50,                    // Buffer adapted for small batches
+    FlushSize:     20,                    // Reduce batch
     FlushInterval: time.Millisecond * 10, // Reduce interval
 }
 ```
 
-### Issue 2: High Memory Usage
+### Issue 2: Memory Usage Too High
 
 **Symptoms**: Program memory usage continues to grow
 
 **Possible Causes**:
 - BufferSize set too large
-- FlushSize set too large (especially for deduplication pipeline)
+- FlushSize set too large (especially for deduplication pipelines)
 - Error channel not being consumed
 
 **Solutions**:
@@ -361,7 +479,7 @@ lowLatencyConfig := gopipeline.PipelineConfig{
 // Reduce buffer and batch size
 memoryOptimizedConfig := gopipeline.PipelineConfig{
     BufferSize:    50,                    // Reduce buffer
-    FlushSize:     25,                    // Reduce batch size
+    FlushSize:     25,                    // Reduce batch
     FlushInterval: time.Millisecond * 50, // Keep moderate interval
 }
 
@@ -396,14 +514,14 @@ go func() {
 // Increase batch size and buffer
 highThroughputConfig := gopipeline.PipelineConfig{
     BufferSize:    500,                    // Increase buffer
-    FlushSize:     100,                    // Increase batch size
+    FlushSize:     100,                    // Increase batch
     FlushInterval: time.Millisecond * 100, // Moderate interval
 }
 ```
 
 ## Best Practices Summary
 
-1. **Start with Default Configuration**: Default configuration suits most scenarios
+1. **Start with Default Configuration**: Default configuration is suitable for most scenarios
 2. **Adjust Based on Actual Needs**: Adjust according to latency, throughput, memory requirements
 3. **Perform Benchmarking**: Use actual data for performance testing
 4. **Monitor Key Metrics**: Continuously monitor performance metrics

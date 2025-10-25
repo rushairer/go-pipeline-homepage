@@ -8,12 +8,12 @@ sidebar_position: 3
 
 ## 概述
 
-去重管道在批处理过程中会自动去除重复数据，基于用户定义的唯一键函数来判断数据是否重复。适用于需要去重处理的数据场景。
+去重管道在批处理过程中会自动去除重复数据，基于数据类型实现的 `UniqueKeyData` 接口的 `GetKey()` 方法来判断数据是否重复。适用于需要去重处理的数据场景。
 
 ## 核心特性
 
 - **自动去重**: 基于唯一键自动去除重复数据
-- **灵活的键函数**: 支持自定义唯一键生成逻辑
+- **接口约束**: 通过 `UniqueKeyData` 接口确保类型安全的唯一键生成
 - **批处理机制**: 支持按大小和时间间隔自动触发批处理
 - **并发安全**: 内置goroutine安全机制
 - **错误处理**: 完善的错误收集和传播
@@ -45,14 +45,23 @@ graph TD
 ### 使用默认配置
 
 ```go
+// 定义实现 UniqueKeyData 接口的数据结构
+type User struct {
+    ID    int
+    Name  string
+    Email string
+}
+
+func (u User) GetKey() string {
+    return u.Email
+}
+
 pipeline := gopipeline.NewDefaultDeduplicationPipeline(
-    // 唯一键函数
-    func(data User) string {
-        return data.Email // 使用邮箱作为唯一键
-    },
-    // 批处理函数
-    func(ctx context.Context, batchData []User) error {
+    func(ctx context.Context, batchData map[string]User) error {
         fmt.Printf("处理去重后的 %d 个用户\n", len(batchData))
+        for key, user := range batchData {
+            fmt.Printf("  %s: %s\n", key, user.Name)
+        }
         return nil
     },
 )
@@ -61,19 +70,25 @@ pipeline := gopipeline.NewDefaultDeduplicationPipeline(
 ### 使用自定义配置
 
 ```go
-deduplicationConfig := gopipeline.PipelineConfig{
-    BufferSize:    200,                    // 缓冲区大小
-    FlushSize:     50,                     // 批处理大小
-    FlushInterval: time.Millisecond * 100, // 刷新间隔
+type Product struct {
+    SKU     string
+    Name    string
+    Version string
+    Price   float64
 }
 
+func (p Product) GetKey() string {
+    return fmt.Sprintf("%s-%s", p.SKU, p.Version)
+}
+
+deduplicationConfig := gopipeline.NewPipelineConfig().
+    WithBufferSize(200).
+    WithFlushSize(50).
+    WithFlushInterval(time.Millisecond * 100).
+    WithDrainOnCancel(true)
+
 pipeline := gopipeline.NewDeduplicationPipeline(deduplicationConfig,
-    // 唯一键函数
-    func(data Product) string {
-        return fmt.Sprintf("%s-%s", data.SKU, data.Version)
-    },
-    // 批处理函数
-    func(ctx context.Context, batchData []Product) error {
+    func(ctx context.Context, batchData map[string]Product) error {
         return processProducts(batchData)
     },
 )
@@ -102,15 +117,12 @@ type User struct {
 }
 
 func main() {
-    // 创建去重管道，基于邮箱去重
+    // 创建去重管道
     pipeline := gopipeline.NewDefaultDeduplicationPipeline(
-        func(user User) string {
-            return user.Email // 邮箱作为唯一键
-        },
-        func(ctx context.Context, users []User) error {
+        func(ctx context.Context, users map[string]User) error {
             fmt.Printf("批处理 %d 个去重用户:\n", len(users))
-            for _, user := range users {
-                fmt.Printf("  - %s (%s)\n", user.Name, user.Email)
+            for key, user := range users {
+                fmt.Printf("  - %s: %s (%s)\n", key, user.Name, user.Email)
             }
             return nil
         },
@@ -119,40 +131,40 @@ func main() {
     ctx, cancel := context.WithTimeout(context.Background(), time.Second*5)
     defer cancel()
     
-    // 启动异步处理
-    go func() {
-        if err := pipeline.AsyncPerform(ctx); err != nil {
-            log.Printf("管道执行错误: %v", err)
-        }
-    }()
+    // 使用便捷API启动
+    done, errs := pipeline.Start(ctx)
     
     // 监听错误
-    errorChan := pipeline.ErrorChan(10)
     go func() {
-        for err := range errorChan {
+        for err := range errs {
             log.Printf("处理错误: %v", err)
         }
     }()
     
     // 添加数据（包含重复邮箱）
     dataChan := pipeline.DataChan()
-    users := []User{
-        {ID: 1, Name: "Alice", Email: "alice@example.com"},
-        {ID: 2, Name: "Bob", Email: "bob@example.com"},
-        {ID: 3, Name: "Alice Updated", Email: "alice@example.com"}, // 重复邮箱
-        {ID: 4, Name: "Charlie", Email: "charlie@example.com"},
-        {ID: 5, Name: "Bob Updated", Email: "bob@example.com"},     // 重复邮箱
-    }
-    
-    for _, user := range users {
-        dataChan <- user
-    }
-    
-    // 关闭数据通道
-    close(dataChan)
+    go func() {
+        defer close(dataChan) // 谁写谁关闭
+        
+        users := []User{
+            {ID: 1, Name: "Alice", Email: "alice@example.com"},
+            {ID: 2, Name: "Bob", Email: "bob@example.com"},
+            {ID: 3, Name: "Alice Updated", Email: "alice@example.com"}, // 重复邮箱，会覆盖第一个
+            {ID: 4, Name: "Charlie", Email: "charlie@example.com"},
+            {ID: 5, Name: "Bob Updated", Email: "bob@example.com"},     // 重复邮箱，会覆盖第一个
+        }
+        
+        for _, user := range users {
+            select {
+            case dataChan <- user:
+            case <-ctx.Done():
+                return
+            }
+        }
+    }()
     
     // 等待处理完成
-    time.Sleep(time.Second * 2)
+    <-done
 }
 ```
 

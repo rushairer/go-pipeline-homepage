@@ -55,11 +55,13 @@ pipeline := gopipeline.NewDefaultStandardPipeline(
 ### 使用自定义配置
 
 ```go
-customConfig := gopipeline.PipelineConfig{
-    BufferSize:    200,                    // 缓冲区大小
-    FlushSize:     100,                    // 批处理大小
-    FlushInterval: time.Millisecond * 100, // 刷新间隔
-}
+// 使用链式方法创建配置
+customConfig := gopipeline.NewPipelineConfig().
+    WithBufferSize(200).
+    WithFlushSize(100).
+    WithFlushInterval(time.Millisecond * 100).
+    WithDrainOnCancel(true).
+    WithDrainGracePeriod(150 * time.Millisecond)
 
 pipeline := gopipeline.NewStandardPipeline(customConfig,
     func(ctx context.Context, batchData []string) error {
@@ -71,7 +73,7 @@ pipeline := gopipeline.NewStandardPipeline(customConfig,
 
 ## 使用示例
 
-### 基本用法
+### 使用便捷API（推荐）
 
 ```go
 package main
@@ -99,32 +101,52 @@ func main() {
     ctx, cancel := context.WithTimeout(context.Background(), time.Second*5)
     defer cancel()
     
-    // 启动异步处理
-    go func() {
-        if err := pipeline.AsyncPerform(ctx); err != nil {
-            log.Printf("管道执行错误: %v", err)
-        }
-    }()
+    // 使用便捷API启动
+    done, errs := pipeline.Start(ctx)
     
     // 监听错误
-    errorChan := pipeline.ErrorChan(10)
     go func() {
-        for err := range errorChan {
+        for err := range errs {
             log.Printf("处理错误: %v", err)
         }
     }()
     
     // 添加数据
     dataChan := pipeline.DataChan()
-    for i := 0; i < 200; i++ {
-        dataChan <- fmt.Sprintf("data-%d", i)
-    }
-    
-    // 关闭数据通道
-    close(dataChan)
+    go func() {
+        defer close(dataChan) // 谁写谁关闭
+        for i := 0; i < 200; i++ {
+            select {
+            case dataChan <- fmt.Sprintf("data-%d", i):
+            case <-ctx.Done():
+                return
+            }
+        }
+    }()
     
     // 等待处理完成
-    time.Sleep(time.Second * 2)
+    <-done
+}
+```
+
+### 同步运行示例
+
+```go
+func syncExample() {
+    pipeline := gopipeline.NewDefaultStandardPipeline(
+        func(ctx context.Context, batchData []string) error {
+            fmt.Printf("批处理 %d 条数据: %v\n", len(batchData), batchData)
+            return nil
+        },
+    )
+    
+    ctx, cancel := context.WithTimeout(context.Background(), time.Second*5)
+    defer cancel()
+    
+    // 同步运行，设置错误通道容量为128
+    if err := pipeline.Run(ctx, 128); err != nil {
+        log.Printf("管道执行错误: %v", err)
+    }
 }
 ```
 
@@ -185,26 +207,71 @@ func apiCallExample() {
 }
 ```
 
-## 同步 vs 异步执行
+## 便捷API vs 传统API
 
-### 异步执行（推荐）
+### 便捷API（推荐）
+
+v2.2.2 新增的便捷API，减少样板代码：
 
 ```go
-// 异步执行，不阻塞主线程
+// 异步启动
+done, errs := pipeline.Start(ctx)
+go func() {
+    for err := range errs {
+        log.Printf("错误: %v", err)
+    }
+}()
+<-done // 等待完成
+
+// 同步运行
+if err := pipeline.Run(ctx, 128); err != nil {
+    log.Printf("管道执行错误: %v", err)
+}
+```
+
+### 传统API
+
+```go
+// 异步执行
 go func() {
     if err := pipeline.AsyncPerform(ctx); err != nil {
         log.Printf("管道执行错误: %v", err)
     }
 }()
-```
 
-### 同步执行
-
-```go
-// 同步执行，阻塞直到完成或取消
+// 同步执行
 if err := pipeline.SyncPerform(ctx); err != nil {
     log.Printf("管道执行错误: %v", err)
 }
+```
+
+## 动态参数调整
+
+v2.2.2 支持运行时安全调整关键参数：
+
+```go
+// 运行中调整参数
+pipeline.UpdateFlushSize(128)
+pipeline.UpdateFlushInterval(25 * time.Millisecond)
+
+// 示例：根据系统负载动态调整
+go func() {
+    ticker := time.NewTicker(time.Second * 30)
+    defer ticker.Stop()
+    
+    for range ticker.C {
+        load := getSystemLoad()
+        if load > 0.8 {
+            // 高负载时减小批次大小
+            pipeline.UpdateFlushSize(25)
+            pipeline.UpdateFlushInterval(100 * time.Millisecond)
+        } else {
+            // 正常负载时使用标准配置
+            pipeline.UpdateFlushSize(50)
+            pipeline.UpdateFlushInterval(50 * time.Millisecond)
+        }
+    }
+}()
 ```
 
 ## 错误处理

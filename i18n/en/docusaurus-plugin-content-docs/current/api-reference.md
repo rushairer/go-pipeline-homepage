@@ -1,339 +1,327 @@
 ---
-sidebar_position: 5
+sidebar_position: 4
 ---
 
 # API Reference
 
-This document provides complete API reference for Go Pipeline v2.
+Complete API documentation for Go Pipeline v2.
 
 ## Core Interfaces
 
-### Pipeline[T any]
-
-Main pipeline interface that combines all pipeline functionality.
-
-```go
-type Pipeline[T any] interface {
-    PipelineChannel[T]
-    Performer[T]
-    DataProcessor[T]
-}
-```
-
-### PipelineChannel[T any]
+### PipelineChannel[T]
 
 Defines pipeline channel access interface.
 
 ```go
 type PipelineChannel[T any] interface {
-    // DataChan returns a writable channel for adding data to the pipeline
     DataChan() chan<- T
-    
-    // ErrorChan returns a read-only channel for receiving error information from the pipeline
-    ErrorChan(size int) <-chan error
+    ErrorChan(capacity uint32) <-chan error
 }
 ```
 
-#### DataChan()
+**Methods**:
+- `DataChan()`: Returns write-only data channel
+- `ErrorChan(capacity uint32)`: Returns read-only error channel with specified capacity
 
-Returns data input channel.
-
-**Return Value**: `chan<- T` - Write-only channel for adding data
-
-**Usage Example**:
-```go
-dataChan := pipeline.DataChan()
-dataChan <- "some data"
-close(dataChan) // Close channel when done
-```
-
-#### ErrorChan(size int)
-
-Returns error output channel.
-
-**Parameters**:
-- `size int` - Buffer size of error channel
-
-**Return Value**: `<-chan error` - Read-only channel for receiving errors
-
-**Usage Example**:
-```go
-errorChan := pipeline.ErrorChan(10)
-go func() {
-    for err := range errorChan {
-        log.Printf("Pipeline error: %v", err)
-    }
-}()
-```
-
-### Performer[T any]
+### Performer
 
 Defines interface for executing pipeline operations.
 
 ```go
-type Performer[T any] interface {
-    // AsyncPerform executes pipeline operations asynchronously
+type Performer interface {
     AsyncPerform(ctx context.Context) error
-    
-    // SyncPerform executes pipeline operations synchronously
-    SyncPerform(ctx context.Context) error
 }
 ```
 
-#### AsyncPerform(ctx context.Context)
+**Methods**:
+- `AsyncPerform(ctx context.Context)`: Start asynchronous pipeline execution
 
-Executes pipeline operations asynchronously, doesn't block calling thread.
+### DataProcessor[T]
 
-**Parameters**:
-- `ctx context.Context` - Context object for controlling operation lifecycle
+Defines core interface for batch processing data.
 
-**Return Value**: `error` - Returns error if ctx is canceled
-
-**Usage Example**:
 ```go
-ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
-defer cancel()
-
-go func() {
-    if err := pipeline.AsyncPerform(ctx); err != nil {
-        log.Printf("Pipeline execution error: %v", err)
-    }
-}()
+type DataProcessor[T any] interface {
+    ProcessBatch(ctx context.Context, batchData []T) error
+}
 ```
 
-#### SyncPerform(ctx context.Context)
+**Methods**:
+- `ProcessBatch(ctx context.Context, batchData []T)`: Process batch data
 
-Executes pipeline operations synchronously, blocks until completion or cancellation.
+### Pipeline[T]
+
+Combines all pipeline functionality into a universal interface.
+
+```go
+type Pipeline[T any] interface {
+    PipelineChannel[T]
+    Performer
+    DataProcessor[T]
+    
+    // Convenient API methods
+    Start(ctx context.Context) (<-chan struct{}, <-chan error)
+    Run(ctx context.Context, errorChanCapacity uint32) error
+    
+    // Dynamic parameter adjustment
+    SetFlushSize(n uint32)
+    SetFlushInterval(d time.Duration)
+    SetMaxConcurrentFlushes(n uint32)
+}
+```
+
+## Implementation Types
+
+### StandardPipeline[T]
+
+Standard batch processing pipeline, data is batch processed in order.
+
+```go
+type StandardPipeline[T any] struct {
+    // Internal implementation details
+}
+```
+
+**Constructor**:
+```go
+func NewStandardPipeline[T any](
+    config PipelineConfig,
+    flushFunc func(ctx context.Context, batchData []T) error,
+) *StandardPipeline[T]
+```
+
+**Default Constructor**:
+```go
+func NewDefaultStandardPipeline[T any](
+    flushFunc func(ctx context.Context, batchData []T) error,
+) *StandardPipeline[T]
+```
+
+### DeduplicationPipeline[T, K]
+
+Deduplication batch processing pipeline, deduplicates based on unique keys.
+
+```go
+type DeduplicationPipeline[T any, K comparable] struct {
+    // Internal implementation details
+}
+```
+
+**Constructor**:
+```go
+func NewDeduplicationPipeline[T any, K comparable](
+    config PipelineConfig,
+    keyFunc func(T) K,
+    flushFunc func(ctx context.Context, batchData []T) error,
+) *DeduplicationPipeline[T, K]
+```
+
+**Default Constructor**:
+```go
+func NewDefaultDeduplicationPipeline[T any, K comparable](
+    keyFunc func(T) K,
+    flushFunc func(ctx context.Context, batchData []T) error,
+) *DeduplicationPipeline[T, K]
+```
+
+## Configuration
+
+### PipelineConfig
+
+Pipeline configuration structure.
+
+```go
+type PipelineConfig struct {
+    BufferSize               uint32        // Buffer channel capacity (default: 100)
+    FlushSize                uint32        // Maximum capacity for batch processing data (default: 50)
+    FlushInterval            time.Duration // Time interval for timed refresh (default: 50ms)
+    DrainOnCancel            bool          // Whether to perform limited-time cleanup flush on cancellation (default false)
+    DrainGracePeriod         time.Duration // Maximum time window for cleanup flush
+    FinalFlushOnCloseTimeout time.Duration // Final flush timeout for channel close path (0 means disabled)
+    MaxConcurrentFlushes     uint32        // Maximum concurrent async flushes (0 means unlimited)
+}
+```
+
+### Configuration Constructor
+
+```go
+func NewPipelineConfig() PipelineConfig
+```
+
+Returns a new configuration with optimized default values.
+
+### Configuration Methods
+
+```go
+func (c PipelineConfig) WithBufferSize(size uint32) PipelineConfig
+func (c PipelineConfig) WithFlushSize(size uint32) PipelineConfig
+func (c PipelineConfig) WithFlushInterval(interval time.Duration) PipelineConfig
+func (c PipelineConfig) WithDrainOnCancel(enabled bool) PipelineConfig
+func (c PipelineConfig) WithDrainGracePeriod(d time.Duration) PipelineConfig
+func (c PipelineConfig) WithFinalFlushOnCloseTimeout(d time.Duration) PipelineConfig
+func (c PipelineConfig) WithMaxConcurrentFlushes(n uint32) PipelineConfig
+```
+
+## Method Details
+
+### Start Method
+
+Convenient API for asynchronous execution.
+
+```go
+func (p *Pipeline[T]) Start(ctx context.Context) (<-chan struct{}, <-chan error)
+```
 
 **Parameters**:
-- `ctx context.Context` - Context object
+- `ctx`: Context for controlling pipeline lifecycle
 
-**Return Value**: `error` - Execution error or cancellation error
+**Returns**:
+- `<-chan struct{}`: Done channel, closed when pipeline completes
+- `<-chan error`: Error channel for receiving processing errors
 
 **Usage Example**:
 ```go
-ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
-defer cancel()
+pipeline := gopipeline.NewDefaultStandardPipeline(flushFunc)
+done, errs := pipeline.Start(ctx)
 
-if err := pipeline.SyncPerform(ctx); err != nil {
+// Listen for errors
+go func() {
+    for err := range errs {
+        log.Printf("Processing error: %v", err)
+    }
+}()
+
+// Add data
+dataChan := pipeline.DataChan()
+go func() {
+    defer close(dataChan)
+    for i := 0; i < 100; i++ {
+        dataChan <- i
+    }
+}()
+
+// Wait for completion
+<-done
+```
+
+### Run Method
+
+Convenient API for synchronous execution.
+
+```go
+func (p *Pipeline[T]) Run(ctx context.Context, errorChanCapacity uint32) error
+```
+
+**Parameters**:
+- `ctx`: Context for controlling pipeline lifecycle
+- `errorChanCapacity`: Error channel capacity
+
+**Returns**:
+- `error`: First error encountered during execution, or nil if successful
+
+**Usage Example**:
+```go
+pipeline := gopipeline.NewDefaultStandardPipeline(flushFunc)
+
+// Add data
+dataChan := pipeline.DataChan()
+go func() {
+    defer close(dataChan)
+    for i := 0; i < 100; i++ {
+        dataChan <- i
+    }
+}()
+
+// Synchronous execution
+if err := pipeline.Run(ctx, 128); err != nil {
     log.Printf("Pipeline execution error: %v", err)
 }
 ```
 
-### DataProcessor[T any]
+### AsyncPerform Method
 
-Defines core interface for batch processing data (mainly for internal implementation).
-
-```go
-type DataProcessor[T any] interface {
-    initBatchData() any
-    addToBatch(batchData any, data T) any
-    flush(ctx context.Context, batchData any) error
-    isBatchFull(batchData any) bool
-    isBatchEmpty(batchData any) bool
-}
-```
-
-## Configuration Types
-
-### PipelineConfig
-
-Pipeline configuration struct.
+Traditional asynchronous execution API.
 
 ```go
-type PipelineConfig struct {
-    BufferSize    uint32        // Buffer channel capacity (default: 100)
-    FlushSize     uint32        // Maximum capacity of batch processing data (default: 50)
-    FlushInterval time.Duration // Time interval for timed refresh (default: 50ms)
-}
-```
-
-**Field Descriptions**:
-- `BufferSize`: Buffer size of internal data channel
-- `FlushSize`: Maximum amount of data per batch processing
-- `FlushInterval`: Time interval for triggering batch processing
-
-## Standard Pipeline API
-
-### Type Definitions
-
-```go
-type FlushStandardFunc[T any] func(ctx context.Context, batchData []T) error
-
-type StandardPipeline[T any] struct {
-    *PipelineImpl[T]
-    flushFunc FlushStandardFunc[T]
-}
-```
-
-### Constructors
-
-#### NewDefaultStandardPipeline[T any]
-
-Creates standard pipeline with default configuration.
-
-```go
-func NewDefaultStandardPipeline[T any](
-    flushFunc FlushStandardFunc[T],
-) *StandardPipeline[T]
+func (p *Pipeline[T]) AsyncPerform(ctx context.Context) error
 ```
 
 **Parameters**:
-- `flushFunc FlushStandardFunc[T]` - Batch processing function
+- `ctx`: Context for controlling pipeline lifecycle
 
-**Return Value**: `*StandardPipeline[T]` - Standard pipeline instance
+**Returns**:
+- `error`: Error if startup fails
 
 **Usage Example**:
 ```go
-pipeline := gopipeline.NewDefaultStandardPipeline(
-    func(ctx context.Context, batchData []string) error {
-        fmt.Printf("Processing %d items: %v\n", len(batchData), batchData)
-        return nil
-    },
-)
+pipeline := gopipeline.NewDefaultStandardPipeline(flushFunc)
+
+// Start pipeline
+if err := pipeline.AsyncPerform(ctx); err != nil {
+    log.Fatalf("Failed to start pipeline: %v", err)
+}
+
+// Handle errors
+go func() {
+    for err := range pipeline.ErrorChan(100) {
+        log.Printf("Processing error: %v", err)
+    }
+}()
+
+// Add data
+dataChan := pipeline.DataChan()
+for i := 0; i < 100; i++ {
+    dataChan <- i
+}
+close(dataChan)
 ```
 
-#### NewStandardPipeline[T any]
+### Dynamic Parameter Adjustment
 
-Creates standard pipeline with custom configuration.
+#### SetFlushSize
+
+Dynamically adjust batch size at runtime.
 
 ```go
-func NewStandardPipeline[T any](
-    config PipelineConfig,
-    flushFunc FlushStandardFunc[T],
-) *StandardPipeline[T]
+func (p *Pipeline[T]) SetFlushSize(n uint32)
 ```
 
 **Parameters**:
-- `config PipelineConfig` - Custom configuration
-- `flushFunc FlushStandardFunc[T]` - Batch processing function
+- `n`: New batch size
 
-**Return Value**: `*StandardPipeline[T]` - Standard pipeline instance
+**Notes**:
+- Changes do not affect batches currently being built
+- Thread-safe operation
 
-**Usage Example**:
-```go
-standardConfig := gopipeline.PipelineConfig{
-    BufferSize:    200,
-    FlushSize:     100,
-    FlushInterval: time.Millisecond * 100,
-}
+#### SetFlushInterval
 
-pipeline := gopipeline.NewStandardPipeline(standardConfig,
-    func(ctx context.Context, batchData []string) error {
-        return processData(batchData)
-    },
-)
-```
-
-## Deduplication Pipeline API
-
-### Type Definitions
+Dynamically adjust flush interval at runtime.
 
 ```go
-type KeyFunc[T any] func(T) string
-type FlushDeduplicationFunc[T any] func(ctx context.Context, batchData []T) error
-
-type DeduplicationPipeline[T any] struct {
-    *PipelineImpl[T]
-    keyFunc   KeyFunc[T]
-    flushFunc FlushDeduplicationFunc[T]
-}
-```
-
-### Constructors
-
-#### NewDefaultDeduplicationPipeline[T any]
-
-Creates deduplication pipeline with default configuration.
-
-```go
-func NewDefaultDeduplicationPipeline[T any](
-    keyFunc KeyFunc[T],
-    flushFunc FlushDeduplicationFunc[T],
-) *DeduplicationPipeline[T]
+func (p *Pipeline[T]) SetFlushInterval(d time.Duration)
 ```
 
 **Parameters**:
-- `keyFunc KeyFunc[T]` - Unique key generation function
-- `flushFunc FlushDeduplicationFunc[T]` - Batch processing function
+- `d`: New flush interval
 
-**Return Value**: `*DeduplicationPipeline[T]` - Deduplication pipeline instance
+**Notes**:
+- Changes take effect on next timer reset
+- Thread-safe operation
 
-**Usage Example**:
-```go
-pipeline := gopipeline.NewDefaultDeduplicationPipeline(
-    func(user User) string {
-        return user.Email // Use email as unique key
-    },
-    func(ctx context.Context, users []User) error {
-        return processUsers(users)
-    },
-)
-```
+#### SetMaxConcurrentFlushes
 
-#### NewDeduplicationPipeline[T any]
-
-Creates deduplication pipeline with custom configuration.
+Dynamically adjust maximum concurrent flushes at runtime.
 
 ```go
-func NewDeduplicationPipeline[T any](
-    config PipelineConfig,
-    keyFunc KeyFunc[T],
-    flushFunc FlushDeduplicationFunc[T],
-) *DeduplicationPipeline[T]
+func (p *Pipeline[T]) SetMaxConcurrentFlushes(n uint32)
 ```
 
 **Parameters**:
-- `config PipelineConfig` - Custom configuration
-- `keyFunc KeyFunc[T]` - Unique key generation function
-- `flushFunc FlushDeduplicationFunc[T]` - Batch processing function
+- `n`: Maximum concurrent flushes (0 means unlimited)
 
-**Return Value**: `*DeduplicationPipeline[T]` - Deduplication pipeline instance
-
-**Usage Example**:
-```go
-deduplicationConfig := gopipeline.PipelineConfig{
-    BufferSize:    100,
-    FlushSize:     50,
-    FlushInterval: time.Millisecond * 100,
-}
-
-pipeline := gopipeline.NewDeduplicationPipeline(deduplicationConfig,
-    func(product Product) string {
-        return fmt.Sprintf("%s-%s", product.SKU, product.Version)
-    },
-    func(ctx context.Context, products []Product) error {
-        return updateProducts(products)
-    },
-)
-```
-
-## Error Types
-
-### PipelineError
-
-Base type for pipeline-related errors.
-
-```go
-type PipelineError struct {
-    Op  string // Operation name
-    Err error  // Original error
-}
-
-func (e *PipelineError) Error() string {
-    return fmt.Sprintf("pipeline %s: %v", e.Op, e.Err)
-}
-
-func (e *PipelineError) Unwrap() error {
-    return e.Err
-}
-```
-
-### Common Errors
-
-- `ErrPipelineClosed`: Pipeline is closed
-- `ErrContextCanceled`: Context was canceled
-- `ErrFlushTimeout`: Flush operation timeout
+**Notes**:
+- Changes take effect immediately
+- Thread-safe operation
 
 ## Usage Patterns
 
@@ -341,83 +329,166 @@ func (e *PipelineError) Unwrap() error {
 
 ```go
 // 1. Create pipeline
-pipeline := gopipeline.NewDefaultStandardPipeline(flushFunc)
+pipeline := gopipeline.NewDefaultStandardPipeline(
+    func(ctx context.Context, batchData []int) error {
+        // Process batch data
+        fmt.Printf("Processing %d items: %v\n", len(batchData), batchData)
+        return nil
+    },
+)
 
-// 2. Start async processing
-ctx, cancel := context.WithCancel(context.Background())
+// 2. Start pipeline
+ctx, cancel := context.WithTimeout(context.Background(), time.Second*10)
 defer cancel()
 
-go func() {
-    if err := pipeline.AsyncPerform(ctx); err != nil {
-        log.Printf("Pipeline error: %v", err)
-    }
-}()
+done, errs := pipeline.Start(ctx)
 
-// 3. Listen for errors
+// 3. Handle errors
 go func() {
-    for err := range pipeline.ErrorChan(10) {
-        log.Printf("Processing error: %v", err)
+    for err := range errs {
+        log.Printf("Error: %v", err)
     }
 }()
 
 // 4. Add data
 dataChan := pipeline.DataChan()
-for _, data := range inputData {
-    dataChan <- data
-}
+go func() {
+    defer close(dataChan) // Who writes, who closes
+    for i := 0; i < 100; i++ {
+        select {
+        case dataChan <- i:
+        case <-ctx.Done():
+            return
+        }
+    }
+}()
 
-// 5. Close and wait for completion
-close(dataChan)
-time.Sleep(time.Second) // Wait for processing to complete
+// 5. Wait for completion
+<-done
 ```
 
-### Graceful Shutdown Pattern
+### Custom Configuration Pattern
 
 ```go
-func gracefulShutdown(pipeline Pipeline[Data]) {
-    // 1. Stop adding new data
-    close(pipeline.DataChan())
-    
-    // 2. Wait for processing to complete
-    ctx, cancel := context.WithTimeout(context.Background(), time.Second*30)
-    defer cancel()
-    
-    done := make(chan struct{})
-    go func() {
-        defer close(done)
-        // Wait for error channel to close (indicates processing complete)
-        for range pipeline.ErrorChan(1) {
-            // Consume remaining errors
-        }
-    }()
-    
-    select {
-    case <-done:
-        log.Println("Pipeline shutdown completed")
-    case <-ctx.Done():
-        log.Println("Pipeline shutdown timeout")
-    }
+// Create custom configuration
+config := gopipeline.NewPipelineConfig().
+    WithBufferSize(200).
+    WithFlushSize(100).
+    WithFlushInterval(time.Millisecond * 100).
+    WithDrainOnCancel(true).
+    WithDrainGracePeriod(time.Second * 5)
+
+// Create pipeline with custom configuration
+pipeline := gopipeline.NewStandardPipeline(config, flushFunc)
+
+// Use pipeline...
+```
+
+### Deduplication Pattern
+
+```go
+type User struct {
+    ID   int
+    Name string
 }
+
+// Create deduplication pipeline
+pipeline := gopipeline.NewDefaultDeduplicationPipeline(
+    func(user User) int { return user.ID }, // Key function
+    func(ctx context.Context, users []User) error {
+        // Process deduplicated users
+        fmt.Printf("Processing %d unique users\n", len(users))
+        return nil
+    },
+)
+
+// Use pipeline...
 ```
 
 ### Error Handling Pattern
 
 ```go
-func handlePipelineErrors(pipeline Pipeline[Data]) {
-    errorChan := pipeline.ErrorChan(100)
+pipeline := gopipeline.NewDefaultStandardPipeline(flushFunc)
+
+// Start pipeline
+done, errs := pipeline.Start(ctx)
+
+// Comprehensive error handling
+go func() {
+    for err := range errs {
+        // Log error
+        log.Printf("Pipeline error: %v", err)
+        
+        // Implement retry logic or alerting
+        if isRetryableError(err) {
+            // Implement retry logic
+        } else {
+            // Send alert
+            sendAlert(err)
+        }
+    }
+}()
+
+// Add data and wait for completion
+// ...
+```
+
+### Dynamic Adjustment Pattern
+
+```go
+pipeline := gopipeline.NewDefaultStandardPipeline(flushFunc)
+
+// Start monitoring and adjustment goroutine
+go func() {
+    ticker := time.NewTicker(time.Second * 30)
+    defer ticker.Stop()
     
-    for err := range errorChan {
-        switch e := err.(type) {
-        case *PipelineError:
-            log.Printf("Pipeline operation %s failed: %v", e.Op, e.Err)
+    for range ticker.C {
+        load := getSystemLoad()
+        memUsage := getMemoryUsage()
+        
+        switch {
+        case load > 0.8:
+            // High load: reduce batch size, increase frequency
+            pipeline.SetFlushSize(25)
+            pipeline.SetFlushInterval(25 * time.Millisecond)
             
-        case *net.OpError:
-            log.Printf("Network error: %v", e)
-            // May need retry or fallback processing
+        case memUsage > 0.7:
+            // High memory usage: reduce batch size
+            pipeline.SetFlushSize(30)
+            pipeline.SetFlushInterval(50 * time.Millisecond)
             
         default:
-            log.Printf("Unknown error: %v", err)
+            // Normal situation: use standard configuration
+            pipeline.SetFlushSize(50)
+            pipeline.SetFlushInterval(50 * time.Millisecond)
         }
+    }
+}()
+
+// Use pipeline...
+```
+
+## Error Types
+
+### Common Error Scenarios
+
+1. **Context Cancellation**: When context is cancelled during processing
+2. **Flush Function Errors**: Errors returned by user-provided flush function
+3. **Channel Closure**: Errors related to improper channel management
+4. **Configuration Errors**: Invalid configuration parameters
+
+### Error Handling Best Practices
+
+```go
+func handlePipelineError(err error) {
+    switch {
+    case errors.Is(err, context.Canceled):
+        log.Println("Pipeline cancelled")
+    case errors.Is(err, context.DeadlineExceeded):
+        log.Println("Pipeline timeout")
+    default:
+        log.Printf("Pipeline error: %v", err)
     }
 }
 ```
@@ -426,29 +497,160 @@ func handlePipelineErrors(pipeline Pipeline[Data]) {
 
 ### Memory Usage
 
-- Standard pipeline: Memory usage proportional to `BufferSize`
-- Deduplication pipeline: Memory usage proportional to `FlushSize` (needs to store map)
+- **BufferSize**: Affects memory usage of internal channels
+- **FlushSize**: Affects memory usage of batch data
+- **Error Channel**: Unbounded error channels can cause memory leaks
 
-### Concurrent Safety
+### CPU Usage
 
-- All public APIs are concurrency-safe
-- Can write data from multiple goroutines simultaneously to `DataChan()`
-- Error channel can be consumed by multiple goroutines
+- **FlushInterval**: Too small intervals increase CPU usage
+- **MaxConcurrentFlushes**: Balance between parallelism and resource usage
 
-### Resource Cleanup
+### Throughput Optimization
 
-- Must consume error channel, otherwise may cause goroutine leaks
-- Should close data channel when done
-- Recommended to use context to control pipeline lifecycle
+```go
+// High throughput configuration
+config := gopipeline.NewPipelineConfig().
+    WithBufferSize(1000).
+    WithFlushSize(200).
+    WithFlushInterval(time.Millisecond * 200).
+    WithMaxConcurrentFlushes(10)
+```
 
-## Version Compatibility
+### Latency Optimization
 
-Go Pipeline v2 requires:
-- Go 1.18+ (generics support)
-- Backward compatible with Go 1.18-1.21
+```go
+// Low latency configuration
+config := gopipeline.NewPipelineConfig().
+    WithBufferSize(50).
+    WithFlushSize(10).
+    WithFlushInterval(time.Millisecond * 10).
+    WithMaxConcurrentFlushes(1)
+```
 
-## Next Steps
+## Thread Safety
 
-- [Standard Pipeline](./standard-pipeline) - Detailed standard pipeline usage guide
-- [Deduplication Pipeline](./deduplication-pipeline) - Detailed deduplication pipeline usage guide
-- [Configuration Guide](./configuration) - Detailed configuration parameter instructions
+All pipeline operations are thread-safe:
+
+- **Data Channel**: Safe for concurrent writes
+- **Error Channel**: Safe for concurrent reads
+- **Dynamic Adjustments**: All SetXxx methods are thread-safe
+- **Pipeline Methods**: All public methods are thread-safe
+
+## Lifecycle Management
+
+### Startup Sequence
+
+1. Create pipeline with configuration
+2. Start pipeline using `Start()` or `AsyncPerform()`
+3. Set up error handling
+4. Begin data production
+
+### Shutdown Sequence
+
+1. Stop data production
+2. Close data channel (following "who writes, who closes" principle)
+3. Wait for pipeline completion
+4. Handle any remaining errors
+
+### Graceful Shutdown
+
+```go
+// Enable graceful shutdown
+config := gopipeline.NewPipelineConfig().
+    WithDrainOnCancel(true).
+    WithDrainGracePeriod(time.Second * 5).
+    WithFinalFlushOnCloseTimeout(time.Second * 10)
+
+pipeline := gopipeline.NewStandardPipeline(config, flushFunc)
+
+// Use context with timeout for controlled shutdown
+ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+defer cancel()
+
+done, errs := pipeline.Start(ctx)
+
+// Handle shutdown signal
+c := make(chan os.Signal, 1)
+signal.Notify(c, os.Interrupt, syscall.SIGTERM)
+
+select {
+case <-c:
+    log.Println("Received shutdown signal, initiating graceful shutdown...")
+    cancel() // This will trigger drain if DrainOnCancel is true
+case <-done:
+    log.Println("Pipeline completed normally")
+}
+```
+
+## Migration Guide
+
+### From v1 to v2
+
+Key changes when migrating from v1:
+
+1. **Generic Support**: Update type declarations to use generics
+2. **New Configuration**: Use new `PipelineConfig` structure
+3. **Convenient API**: Consider using new `Start()` and `Run()` methods
+4. **Dynamic Adjustment**: Utilize new runtime parameter adjustment features
+
+### Example Migration
+
+**v1 Code**:
+```go
+// v1 style (pseudo-code)
+pipeline := oldpipeline.New(config, flushFunc)
+pipeline.Start()
+```
+
+**v2 Code**:
+```go
+// v2 style
+pipeline := gopipeline.NewDefaultStandardPipeline(flushFunc)
+done, errs := pipeline.Start(ctx)
+```
+
+## Debugging and Monitoring
+
+### Enable Debug Logging
+
+```go
+// Add debug logging to flush function
+flushFunc := func(ctx context.Context, batchData []Data) error {
+    log.Printf("Processing batch of %d items", len(batchData))
+    
+    start := time.Now()
+    err := actualProcessing(batchData)
+    duration := time.Since(start)
+    
+    log.Printf("Batch processing took %v", duration)
+    return err
+}
+```
+
+### Metrics Collection
+
+```go
+type PipelineMetrics struct {
+    TotalBatches    int64
+    TotalItems      int64
+    TotalErrors     int64
+    AverageLatency  time.Duration
+    LastBatchSize   int
+}
+
+func collectMetrics(pipeline Pipeline[Data]) PipelineMetrics {
+    // Implement metrics collection logic
+    return PipelineMetrics{}
+}
+```
+
+## Best Practices Summary
+
+1. **Use Default Configuration**: Start with defaults and adjust as needed
+2. **Handle Errors**: Always consume error channel to prevent goroutine leaks
+3. **Follow Channel Rules**: "Who writes, who closes" principle
+4. **Monitor Performance**: Track key metrics and adjust configuration
+5. **Graceful Shutdown**: Use context cancellation and drain settings
+6. **Test Under Load**: Validate configuration with realistic workloads
+7. **Document Configuration**: Record configuration choices and test results

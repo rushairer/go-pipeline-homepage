@@ -4,38 +4,38 @@ sidebar_position: 3
 
 # Deduplication Pipeline
 
-DeduplicationPipeline is another core component of Go Pipeline v2, providing deduplication batch processing functionality based on unique keys.
+The Deduplication Pipeline (DeduplicationPipeline) is another core component of Go Pipeline v2, providing deduplication batch processing functionality based on unique keys.
 
 ## Overview
 
-Deduplication pipeline automatically removes duplicate data during batch processing, based on user-defined unique key functions to determine if data is duplicate. Suitable for data scenarios that require deduplication processing.
+The deduplication pipeline automatically removes duplicate data during batch processing, based on the `GetKey()` method of the `UniqueKeyData` interface implemented by the data type to determine if data is duplicate. It is suitable for data scenarios that require deduplication processing.
 
 ## Core Features
 
 - **Automatic Deduplication**: Automatically removes duplicate data based on unique keys
-- **Flexible Key Functions**: Supports custom unique key generation logic
-- **Batch Processing Mechanism**: Supports automatic batch processing triggered by size and time intervals
-- **Concurrent Safety**: Built-in goroutine safety mechanism
+- **Interface Constraints**: Ensures type-safe unique key generation through the `UniqueKeyData` interface
+- **Batch Processing**: Supports automatic batch triggering by size and time interval
+- **Concurrency Safety**: Built-in goroutine safety mechanisms
 - **Error Handling**: Comprehensive error collection and propagation
 
 ## Data Flow
 
 ```mermaid
 graph TD
-    A[Data Input] --> B[Get Unique Key]
-    B --> C[Add to Map Container]
-    C --> D{Is Batch Full?}
-    D -->|Yes| E[Execute Deduplication Batch Processing]
-    D -->|No| F[Wait for More Data]
-    F --> G{Timer Triggered?}
-    G -->|Yes| H{Is Batch Empty?}
+    A["Data Input"] --> B["Get Unique Key"]
+    B --> C["Add to Map Container"]
+    C --> D{"Is Batch Full?"}
+    D -->|Yes| E["Execute Deduplication Batch Processing"]
+    D -->|No| F["Wait for More Data"]
+    F --> G{"Timer Triggered?"}
+    G -->|Yes| H{"Is Batch Empty?"}
     H -->|No| E
     H -->|Yes| F
     G -->|No| F
-    E --> I[Call Deduplication Flush Function]
-    I --> J{Any Errors?}
-    J -->|Yes| K[Send to Error Channel]
-    J -->|No| L[Reset Batch]
+    E --> I["Call Deduplication Flush Function"]
+    I --> J{"Any Errors?"}
+    J -->|Yes| K["Send to Error Channel"]
+    J -->|No| L["Reset Batch"]
     K --> L
     L --> F
 ```
@@ -45,14 +45,23 @@ graph TD
 ### Using Default Configuration
 
 ```go
+// Define data structure implementing UniqueKeyData interface
+type User struct {
+    ID    int
+    Name  string
+    Email string
+}
+
+func (u User) GetKey() string {
+    return u.Email
+}
+
 pipeline := gopipeline.NewDefaultDeduplicationPipeline(
-    // Unique key function
-    func(data User) string {
-        return data.Email // Use email as unique key
-    },
-    // Batch processing function
-    func(ctx context.Context, batchData []User) error {
+    func(ctx context.Context, batchData map[string]User) error {
         fmt.Printf("Processing %d deduplicated users\n", len(batchData))
+        for key, user := range batchData {
+            fmt.Printf("  %s: %s\n", key, user.Name)
+        }
         return nil
     },
 )
@@ -61,19 +70,25 @@ pipeline := gopipeline.NewDefaultDeduplicationPipeline(
 ### Using Custom Configuration
 
 ```go
-deduplicationConfig := gopipeline.PipelineConfig{
-    BufferSize:    200,                    // Buffer size
-    FlushSize:     50,                     // Batch size
-    FlushInterval: time.Millisecond * 100, // Flush interval
+type Product struct {
+    SKU     string
+    Name    string
+    Version string
+    Price   float64
 }
 
+func (p Product) GetKey() string {
+    return fmt.Sprintf("%s-%s", p.SKU, p.Version)
+}
+
+deduplicationConfig := gopipeline.NewPipelineConfig().
+    WithBufferSize(200).
+    WithFlushSize(50).
+    WithFlushInterval(time.Millisecond * 100).
+    WithDrainOnCancel(true)
+
 pipeline := gopipeline.NewDeduplicationPipeline(deduplicationConfig,
-    // Unique key function
-    func(data Product) string {
-        return fmt.Sprintf("%s-%s", data.SKU, data.Version)
-    },
-    // Batch processing function
-    func(ctx context.Context, batchData []Product) error {
+    func(ctx context.Context, batchData map[string]Product) error {
         return processProducts(batchData)
     },
 )
@@ -101,16 +116,17 @@ type User struct {
     Email string
 }
 
+func (u User) GetKey() string {
+    return u.Email
+}
+
 func main() {
-    // Create deduplication pipeline, deduplicate based on email
+    // Create deduplication pipeline
     pipeline := gopipeline.NewDefaultDeduplicationPipeline(
-        func(user User) string {
-            return user.Email // Email as unique key
-        },
-        func(ctx context.Context, users []User) error {
+        func(ctx context.Context, users map[string]User) error {
             fmt.Printf("Batch processing %d deduplicated users:\n", len(users))
-            for _, user := range users {
-                fmt.Printf("  - %s (%s)\n", user.Name, user.Email)
+            for key, user := range users {
+                fmt.Printf("  - %s: %s (%s)\n", key, user.Name, user.Email)
             }
             return nil
         },
@@ -119,40 +135,40 @@ func main() {
     ctx, cancel := context.WithTimeout(context.Background(), time.Second*5)
     defer cancel()
     
-    // Start async processing
-    go func() {
-        if err := pipeline.AsyncPerform(ctx); err != nil {
-            log.Printf("Pipeline execution error: %v", err)
-        }
-    }()
+    // Start using convenient API
+    done, errs := pipeline.Start(ctx)
     
     // Listen for errors
-    errorChan := pipeline.ErrorChan(10)
     go func() {
-        for err := range errorChan {
+        for err := range errs {
             log.Printf("Processing error: %v", err)
         }
     }()
     
     // Add data (including duplicate emails)
     dataChan := pipeline.DataChan()
-    users := []User{
-        {ID: 1, Name: "Alice", Email: "alice@example.com"},
-        {ID: 2, Name: "Bob", Email: "bob@example.com"},
-        {ID: 3, Name: "Alice Updated", Email: "alice@example.com"}, // Duplicate email
-        {ID: 4, Name: "Charlie", Email: "charlie@example.com"},
-        {ID: 5, Name: "Bob Updated", Email: "bob@example.com"},     // Duplicate email
-    }
+    go func() {
+        defer close(dataChan) // Who writes, who closes
+        
+        users := []User{
+            {ID: 1, Name: "Alice", Email: "alice@example.com"},
+            {ID: 2, Name: "Bob", Email: "bob@example.com"},
+            {ID: 3, Name: "Alice Updated", Email: "alice@example.com"}, // Duplicate email, will overwrite the first one
+            {ID: 4, Name: "Charlie", Email: "charlie@example.com"},
+            {ID: 5, Name: "Bob Updated", Email: "bob@example.com"},     // Duplicate email, will overwrite the first one
+        }
+        
+        for _, user := range users {
+            select {
+            case dataChan <- user:
+            case <-ctx.Done():
+                return
+            }
+        }
+    }()
     
-    for _, user := range users {
-        dataChan <- user
-    }
-    
-    // Close data channel
-    close(dataChan)
-    
-    // Wait for processing to complete
-    time.Sleep(time.Second * 2)
+    // Wait for completion
+    <-done
 }
 ```
 
@@ -166,13 +182,14 @@ type Product struct {
     Price   float64
 }
 
+func (p Product) GetKey() string {
+    return fmt.Sprintf("%s-%s", p.SKU, p.Version)
+}
+
 func productDeduplicationExample() {
-    // Deduplicate based on SKU+Version combination
+    // Deduplication based on SKU+Version combination
     pipeline := gopipeline.NewDefaultDeduplicationPipeline(
-        func(product Product) string {
-            return fmt.Sprintf("%s-%s", product.SKU, product.Version)
-        },
-        func(ctx context.Context, products []Product) error {
+        func(ctx context.Context, products map[string]Product) error {
             // Batch update product information
             return updateProducts(products)
         },
@@ -192,13 +209,14 @@ type LogEntry struct {
     Source    string
 }
 
+func (l LogEntry) GetKey() string {
+    return fmt.Sprintf("%s-%s", l.Message, l.Source)
+}
+
 func logDeduplicationExample() {
-    // Deduplicate based on message content and source
+    // Deduplication based on message content and source
     pipeline := gopipeline.NewDefaultDeduplicationPipeline(
-        func(log LogEntry) string {
-            return fmt.Sprintf("%s-%s", log.Message, log.Source)
-        },
-        func(ctx context.Context, logs []LogEntry) error {
+        func(ctx context.Context, logs map[string]LogEntry) error {
             // Batch write logs
             return writeLogsToStorage(logs)
         },
@@ -214,16 +232,16 @@ func logDeduplicationExample() {
 
 ```go
 // Use single field
-func(user User) string {
+func (user User) GetKey() string {
     return user.Email
 }
 ```
 
-### Composite Fields as Key
+### Combined Fields as Key
 
 ```go
-// Use multiple field combination
-func(order Order) string {
+// Use multiple fields combination
+func (order Order) GetKey() string {
     return fmt.Sprintf("%s-%s-%d", 
         order.CustomerID, 
         order.ProductID, 
@@ -235,8 +253,8 @@ func(order Order) string {
 
 ```go
 // Use complex logic to generate key
-func(event Event) string {
-    // Normalize processing
+func (event Event) GetKey() string {
+    // Normalization processing
     normalized := strings.ToLower(strings.TrimSpace(event.Name))
     return fmt.Sprintf("%s-%s", normalized, event.Category)
 }
@@ -250,7 +268,7 @@ import (
     "fmt"
 )
 
-func(data ComplexData) string {
+func (data ComplexData) GetKey() string {
     // Generate hash key for complex data
     content := fmt.Sprintf("%v", data)
     hash := md5.Sum([]byte(content))
@@ -262,7 +280,7 @@ func(data ComplexData) string {
 
 ### Keep Latest Data
 
-Deduplication pipeline keeps the last added data by default:
+The deduplication pipeline keeps the last added data by default:
 
 ```go
 // If there are duplicate keys, later added data will overwrite earlier added data
@@ -275,7 +293,7 @@ dataChan <- User{ID: 2, Name: "Alice Updated", Email: "alice@example.com"} // Th
 If more complex deduplication logic is needed, it can be implemented in the batch processing function:
 
 ```go
-func(ctx context.Context, users []User) error {
+func(ctx context.Context, users map[string]User) error {
     // Custom deduplication logic: keep user with smallest ID
     userMap := make(map[string]User)
     for _, user := range users {
@@ -298,7 +316,7 @@ func(ctx context.Context, users []User) error {
 
 ### Memory Usage
 
-Deduplication pipeline uses map to store data, memory usage is related to batch size:
+The deduplication pipeline uses a map to store data, memory usage is related to batch size:
 
 ```go
 // Smaller batch size can reduce memory usage
@@ -311,16 +329,16 @@ memoryOptimizedConfig := gopipeline.PipelineConfig{
 
 ### Key Function Performance
 
-Ensure unique key function is efficient:
+Ensure the unique key function is efficient:
 
 ```go
 // Good practice: simple field access
-func(user User) string {
+func (user User) GetKey() string {
     return user.ID
 }
 
 // Avoid: complex calculations
-func(user User) string {
+func (user User) GetKey() string {
     // Avoid complex calculations in key function
     return expensiveCalculation(user)
 }
@@ -335,7 +353,7 @@ go func() {
     for err := range errorChan {
         log.Printf("Deduplication pipeline error: %v", err)
         
-        // Can handle based on error type
+        // Handle based on error type
         if isRetryableError(err) {
             // Retry logic
         }
@@ -345,9 +363,9 @@ go func() {
 
 ## Best Practices
 
-1. **Choose Appropriate Unique Key**: Ensure key can accurately identify data uniqueness
-2. **Key Function Should Be Efficient**: Avoid complex calculations in key function
-3. **Monitor Memory Usage**: Large batches may cause high memory usage
+1. **Choose Appropriate Unique Key**: Ensure the key can accurately identify data uniqueness
+2. **Key Function Should Be Efficient**: Avoid complex calculations in key functions
+3. **Monitor Memory Usage**: Large batches may lead to high memory usage
 4. **Set Reasonable Batch Size**: Balance memory usage and processing efficiency
 5. **Consume Error Channel Promptly**: Prevent error channel blocking
 
@@ -362,6 +380,6 @@ go func() {
 
 ## Next Steps
 
-- [Configuration Guide](./configuration) - Detailed configuration parameter instructions
+- [Configuration Guide](./configuration) - Detailed configuration parameter descriptions
 - [API Reference](./api-reference) - Complete API documentation
 - [Standard Pipeline](./standard-pipeline) - Standard pipeline usage guide

@@ -2,57 +2,66 @@
 sidebar_position: 3
 ---
 
-# Пайплайн дедупликации
+# Конвейер дедупликации
 
-DeduplicationPipeline является другим основным компонентом Go Pipeline v2, предоставляющим функциональность пакетной обработки с дедупликацией на основе уникальных ключей.
+Конвейер дедупликации (DeduplicationPipeline) является еще одним основным компонентом Go Pipeline v2, предоставляющим функциональность пакетной обработки с дедупликацией на основе уникальных ключей.
 
 ## Обзор
 
-Пайплайн дедупликации автоматически удаляет дублированные данные во время пакетной обработки, основываясь на пользовательских функциях уникальных ключей для определения дублированных данных. Подходит для сценариев данных, требующих обработки дедупликации.
+Конвейер дедупликации автоматически удаляет дублирующиеся данные во время пакетной обработки, основываясь на методе `GetKey()` интерфейса `UniqueKeyData`, реализованного типом данных, для определения дублирования данных. Подходит для сценариев данных, которые требуют обработки дедупликации.
 
 ## Основные функции
 
-- **Автоматическая дедупликация**: Автоматически удаляет дублированные данные на основе уникальных ключей
-- **Гибкие функции ключей**: Поддерживает пользовательскую логику генерации уникальных ключей
-- **Механизм пакетной обработки**: Поддерживает автоматическую пакетную обработку, запускаемую размером и временными интервалами
-- **Безопасность конкурентности**: Встроенный механизм безопасности горутин
+- **Автоматическая дедупликация**: Автоматически удаляет дублирующиеся данные на основе уникальных ключей
+- **Ограничения интерфейса**: Обеспечивает типобезопасную генерацию уникальных ключей через интерфейс `UniqueKeyData`
+- **Пакетная обработка**: Поддерживает автоматический запуск пакетов по размеру и временному интервалу
+- **Безопасность параллелизма**: Встроенные механизмы безопасности горутин
 - **Обработка ошибок**: Комплексный сбор и распространение ошибок
 
 ## Поток данных
 
 ```mermaid
 graph TD
-    A[Ввод данных] --> B[Получить уникальный ключ]
-    B --> C[Добавить в контейнер Map]
-    C --> D{Пакет полон?}
-    D -->|Да| E[Выполнить пакетную обработку с дедупликацией]
-    D -->|Нет| F[Ждать больше данных]
-    F --> G{Таймер сработал?}
-    G -->|Да| H{Пакет пуст?}
+    A["Ввод данных"] --> B["Получить уникальный ключ"]
+    B --> C["Добавить в Map контейнер"]
+    C --> D{"Пакет полон?"}
+    D -->|Да| E["Выполнить пакетную обработку с дедупликацией"]
+    D -->|Нет| F["Ждать больше данных"]
+    F --> G{"Таймер сработал?"}
+    G -->|Да| H{"Пакет пуст?"}
     H -->|Нет| E
     H -->|Да| F
     G -->|Нет| F
-    E --> I[Вызвать функцию сброса с дедупликацией]
-    I --> J{Есть ошибки?}
-    J -->|Да| K[Отправить в канал ошибок]
-    J -->|Нет| L[Сбросить пакет]
+    E --> I["Вызвать функцию сброса дедупликации"]
+    I --> J{"Есть ошибки?"}
+    J -->|Да| K["Отправить в канал ошибок"]
+    J -->|Нет| L["Сбросить пакет"]
     K --> L
     L --> F
 ```
 
-## Создание пайплайна дедупликации
+## Создание конвейера дедупликации
 
 ### Использование конфигурации по умолчанию
 
 ```go
+// Определить структуру данных, реализующую интерфейс UniqueKeyData
+type User struct {
+    ID    int
+    Name  string
+    Email string
+}
+
+func (u User) GetKey() string {
+    return u.Email
+}
+
 pipeline := gopipeline.NewDefaultDeduplicationPipeline(
-    // Функция уникального ключа
-    func(data User) string {
-        return data.Email // Использовать email как уникальный ключ
-    },
-    // Функция пакетной обработки
-    func(ctx context.Context, batchData []User) error {
+    func(ctx context.Context, batchData map[string]User) error {
         fmt.Printf("Обработка %d дедуплицированных пользователей\n", len(batchData))
+        for key, user := range batchData {
+            fmt.Printf("  %s: %s\n", key, user.Name)
+        }
         return nil
     },
 )
@@ -61,19 +70,25 @@ pipeline := gopipeline.NewDefaultDeduplicationPipeline(
 ### Использование пользовательской конфигурации
 
 ```go
-deduplicationConfig := gopipeline.PipelineConfig{
-    BufferSize:    200,                    // Размер буфера
-    FlushSize:     50,                     // Размер пакета
-    FlushInterval: time.Millisecond * 100, // Интервал сброса
+type Product struct {
+    SKU     string
+    Name    string
+    Version string
+    Price   float64
 }
 
+func (p Product) GetKey() string {
+    return fmt.Sprintf("%s-%s", p.SKU, p.Version)
+}
+
+deduplicationConfig := gopipeline.NewPipelineConfig().
+    WithBufferSize(200).
+    WithFlushSize(50).
+    WithFlushInterval(time.Millisecond * 100).
+    WithDrainOnCancel(true)
+
 pipeline := gopipeline.NewDeduplicationPipeline(deduplicationConfig,
-    // Функция уникального ключа
-    func(data Product) string {
-        return fmt.Sprintf("%s-%s", data.SKU, data.Version)
-    },
-    // Функция пакетной обработки
-    func(ctx context.Context, batchData []Product) error {
+    func(ctx context.Context, batchData map[string]Product) error {
         return processProducts(batchData)
     },
 )
@@ -101,16 +116,17 @@ type User struct {
     Email string
 }
 
+func (u User) GetKey() string {
+    return u.Email
+}
+
 func main() {
-    // Создать пайплайн дедупликации, дедуплицировать на основе email
+    // Создать конвейер дедупликации
     pipeline := gopipeline.NewDefaultDeduplicationPipeline(
-        func(user User) string {
-            return user.Email // Email как уникальный ключ
-        },
-        func(ctx context.Context, users []User) error {
+        func(ctx context.Context, users map[string]User) error {
             fmt.Printf("Пакетная обработка %d дедуплицированных пользователей:\n", len(users))
-            for _, user := range users {
-                fmt.Printf("  - %s (%s)\n", user.Name, user.Email)
+            for key, user := range users {
+                fmt.Printf("  - %s: %s (%s)\n", key, user.Name, user.Email)
             }
             return nil
         },
@@ -119,40 +135,40 @@ func main() {
     ctx, cancel := context.WithTimeout(context.Background(), time.Second*5)
     defer cancel()
     
-    // Запустить асинхронную обработку
-    go func() {
-        if err := pipeline.AsyncPerform(ctx); err != nil {
-            log.Printf("Ошибка выполнения пайплайна: %v", err)
-        }
-    }()
+    // Запуск с использованием удобного API
+    done, errs := pipeline.Start(ctx)
     
-    // Слушать ошибки
-    errorChan := pipeline.ErrorChan(10)
+    // Прослушивание ошибок
     go func() {
-        for err := range errorChan {
+        for err := range errs {
             log.Printf("Ошибка обработки: %v", err)
         }
     }()
     
-    // Добавить данные (включая дублированные email)
+    // Добавление данных (включая дублирующиеся email)
     dataChan := pipeline.DataChan()
-    users := []User{
-        {ID: 1, Name: "Alice", Email: "alice@example.com"},
-        {ID: 2, Name: "Bob", Email: "bob@example.com"},
-        {ID: 3, Name: "Alice Updated", Email: "alice@example.com"}, // Дублированный email
-        {ID: 4, Name: "Charlie", Email: "charlie@example.com"},
-        {ID: 5, Name: "Bob Updated", Email: "bob@example.com"},     // Дублированный email
-    }
+    go func() {
+        defer close(dataChan) // Кто пишет, тот закрывает
+        
+        users := []User{
+            {ID: 1, Name: "Alice", Email: "alice@example.com"},
+            {ID: 2, Name: "Bob", Email: "bob@example.com"},
+            {ID: 3, Name: "Alice Updated", Email: "alice@example.com"}, // Дублирующийся email, перезапишет первый
+            {ID: 4, Name: "Charlie", Email: "charlie@example.com"},
+            {ID: 5, Name: "Bob Updated", Email: "bob@example.com"},     // Дублирующийся email, перезапишет первый
+        }
+        
+        for _, user := range users {
+            select {
+            case dataChan <- user:
+            case <-ctx.Done():
+                return
+            }
+        }
+    }()
     
-    for _, user := range users {
-        dataChan <- user
-    }
-    
-    // Закрыть канал данных
-    close(dataChan)
-    
-    // Дождаться завершения обработки
-    time.Sleep(time.Second * 2)
+    // Ожидание завершения
+    <-done
 }
 ```
 
@@ -166,19 +182,20 @@ type Product struct {
     Price   float64
 }
 
+func (p Product) GetKey() string {
+    return fmt.Sprintf("%s-%s", p.SKU, p.Version)
+}
+
 func productDeduplicationExample() {
-    // Дедуплицировать на основе комбинации SKU+Version
+    // Дедупликация на основе комбинации SKU+Version
     pipeline := gopipeline.NewDefaultDeduplicationPipeline(
-        func(product Product) string {
-            return fmt.Sprintf("%s-%s", product.SKU, product.Version)
-        },
-        func(ctx context.Context, products []Product) error {
+        func(ctx context.Context, products map[string]Product) error {
             // Пакетное обновление информации о продуктах
             return updateProducts(products)
         },
     )
     
-    // Использовать пайплайн...
+    // Использовать конвейер...
 }
 ```
 
@@ -192,19 +209,20 @@ type LogEntry struct {
     Source    string
 }
 
+func (l LogEntry) GetKey() string {
+    return fmt.Sprintf("%s-%s", l.Message, l.Source)
+}
+
 func logDeduplicationExample() {
-    // Дедуплицировать на основе содержимого сообщения и источника
+    // Дедупликация на основе содержимого сообщения и источника
     pipeline := gopipeline.NewDefaultDeduplicationPipeline(
-        func(log LogEntry) string {
-            return fmt.Sprintf("%s-%s", log.Message, log.Source)
-        },
-        func(ctx context.Context, logs []LogEntry) error {
+        func(ctx context.Context, logs map[string]LogEntry) error {
             // Пакетная запись логов
             return writeLogsToStorage(logs)
         },
     )
     
-    // Использовать пайплайн...
+    // Использовать конвейер...
 }
 ```
 
@@ -214,16 +232,16 @@ func logDeduplicationExample() {
 
 ```go
 // Использовать одно поле
-func(user User) string {
+func (user User) GetKey() string {
     return user.Email
 }
 ```
 
-### Составные поля как ключ
+### Комбинированные поля как ключ
 
 ```go
 // Использовать комбинацию нескольких полей
-func(order Order) string {
+func (order Order) GetKey() string {
     return fmt.Sprintf("%s-%s-%d", 
         order.CustomerID, 
         order.ProductID, 
@@ -231,11 +249,11 @@ func(order Order) string {
 }
 ```
 
-### Ключ сложной логики
+### Ключ со сложной логикой
 
 ```go
 // Использовать сложную логику для генерации ключа
-func(event Event) string {
+func (event Event) GetKey() string {
     // Обработка нормализации
     normalized := strings.ToLower(strings.TrimSpace(event.Name))
     return fmt.Sprintf("%s-%s", normalized, event.Category)
@@ -250,7 +268,7 @@ import (
     "fmt"
 )
 
-func(data ComplexData) string {
+func (data ComplexData) GetKey() string {
     // Генерировать хеш-ключ для сложных данных
     content := fmt.Sprintf("%v", data)
     hash := md5.Sum([]byte(content))
@@ -260,14 +278,14 @@ func(data ComplexData) string {
 
 ## Стратегия дедупликации
 
-### Сохранить последние данные
+### Сохранение последних данных
 
-Пайплайн дедупликации по умолчанию сохраняет последние добавленные данные:
+Конвейер дедупликации по умолчанию сохраняет последние добавленные данные:
 
 ```go
-// Если есть дублированные ключи, позже добавленные данные перезапишут ранее добавленные данные
+// Если есть дублирующиеся ключи, позже добавленные данные перезапишут ранее добавленные данные
 dataChan <- User{ID: 1, Name: "Alice", Email: "alice@example.com"}
-dataChan <- User{ID: 2, Name: "Alice Updated", Email: "alice@example.com"} // Это будет сохранено
+dataChan <- User{ID: 2, Name: "Alice Updated", Email: "alice@example.com"} // Этот будет сохранен
 ```
 
 ### Пользовательская логика дедупликации
@@ -275,7 +293,7 @@ dataChan <- User{ID: 2, Name: "Alice Updated", Email: "alice@example.com"} // Э
 Если нужна более сложная логика дедупликации, она может быть реализована в функции пакетной обработки:
 
 ```go
-func(ctx context.Context, users []User) error {
+func(ctx context.Context, users map[string]User) error {
     // Пользовательская логика дедупликации: сохранить пользователя с наименьшим ID
     userMap := make(map[string]User)
     for _, user := range users {
@@ -298,11 +316,11 @@ func(ctx context.Context, users []User) error {
 
 ### Использование памяти
 
-Пайплайн дедупликации использует map для хранения данных, использование памяти связано с размером пакета:
+Конвейер дедупликации использует map для хранения данных, использование памяти связано с размером пакета:
 
 ```go
 // Меньший размер пакета может уменьшить использование памяти
-configОптимизированныйПоПамяти := gopipeline.PipelineConfig{
+memoryOptimizedConfig := gopipeline.PipelineConfig{
     BufferSize:    200,                   // Размер буфера
     FlushSize:     100,                   // Хранить максимум 100 уникальных элементов
     FlushInterval: time.Millisecond * 50, // Интервал сброса
@@ -315,12 +333,12 @@ configОптимизированныйПоПамяти := gopipeline.PipelineCon
 
 ```go
 // Хорошая практика: простой доступ к полю
-func(user User) string {
+func (user User) GetKey() string {
     return user.ID
 }
 
 // Избегать: сложные вычисления
-func(user User) string {
+func (user User) GetKey() string {
     // Избегать сложных вычислений в функции ключа
     return expensiveCalculation(user)
 }
@@ -329,13 +347,13 @@ func(user User) string {
 ## Обработка ошибок
 
 ```go
-// Слушать ошибки
+// Прослушивать ошибки
 errorChan := pipeline.ErrorChan(10)
 go func() {
     for err := range errorChan {
-        log.Printf("Ошибка пайплайна дедупликации: %v", err)
+        log.Printf("Ошибка конвейера дедупликации: %v", err)
         
-        // Можно обрабатывать на основе типа ошибки
+        // Обрабатывать в зависимости от типа ошибки
         if isRetryableError(err) {
             // Логика повтора
         }
@@ -346,15 +364,15 @@ go func() {
 ## Лучшие практики
 
 1. **Выбрать подходящий уникальный ключ**: Убедиться, что ключ может точно идентифицировать уникальность данных
-2. **Функция ключа должна быть эффективной**: Избегать сложных вычислений в функции ключа
-3. **Мониторить использование памяти**: Большие пакеты могут вызвать высокое использование памяти
+2. **Функция ключа должна быть эффективной**: Избегать сложных вычислений в функциях ключа
+3. **Мониторить использование памяти**: Большие пакеты могут привести к высокому использованию памяти
 4. **Установить разумный размер пакета**: Балансировать использование памяти и эффективность обработки
-5. **Быстро потреблять канал ошибок**: Предотвратить блокировку канала ошибок
+5. **Своевременно потреблять канал ошибок**: Предотвращать блокировку канала ошибок
 
-## Сравнение со стандартным пайплайном
+## Сравнение со стандартным конвейером
 
-| Функция | Стандартный пайплайн | Пайплайн дедупликации |
-|---------|----------------------|------------------------|
+| Функция | Стандартный конвейер | Конвейер дедупликации |
+|---------|----------------------|-----------------------|
 | Порядок данных | Сохраняет исходный порядок | Нет гарантии порядка |
 | Использование памяти | Ниже | Выше (нужно хранить map) |
 | Скорость обработки | Быстрее | Медленнее (нужны вычисления дедупликации) |
@@ -362,6 +380,6 @@ go func() {
 
 ## Следующие шаги
 
-- [Руководство по конфигурации](./configuration) - Подробные инструкции по параметрам конфигурации
+- [Руководство по конфигурации](./configuration) - Подробные описания параметров конфигурации
 - [Справочник API](./api-reference) - Полная документация API
-- [Стандартный пайплайн](./standard-pipeline) - Руководство по использованию стандартного пайплайна
+- [Стандартный конвейер](./standard-pipeline) - Руководство по использованию стандартного конвейера
