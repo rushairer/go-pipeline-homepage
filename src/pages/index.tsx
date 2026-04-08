@@ -22,7 +22,7 @@ function HomepageHeader() {
             to="/docs/intro">
             {translate({
               id: 'homepage.quickStart',
-              message: '快速开始 - 5分钟 ⏱️',
+              message: '阅读 v2.2.4 文档',
               description: 'Quick start button text'
             })}
           </Link>
@@ -43,7 +43,7 @@ export default function Home() {
       })}
       description={translate({
         id: 'homepage.description',
-        message: '高性能Go批处理管道框架，支持泛型、并发安全和去重功能',
+        message: 'Go Pipeline v2.2.4 文档站，覆盖标准管道、去重管道、配置调优与 API 参考',
         description: 'Homepage description'
       })}>
       <HomepageHeader />

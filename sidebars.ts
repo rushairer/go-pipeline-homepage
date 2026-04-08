@@ -5,7 +5,7 @@ const sidebars: SidebarsConfig = {
     {
       type: 'category',
       label: '开始使用',
-      items: ['intro', 'whats-new-v2.2.2'],
+      items: ['intro', 'whats-new-v2.2.4', 'whats-new-v2.2.2'],
     },
     {
       type: 'category',

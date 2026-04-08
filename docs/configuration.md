@@ -1,535 +1,160 @@
 ---
-sidebar_position: 4
+sidebar_position: 5
 ---
 
 # 配置指南
 
-本文档详细介绍 Go Pipeline v2 的配置参数和最佳实践。
+2.2.4 之后，文档将配置说明统一为“吞吐、延迟、内存、背压”四个维度来理解。
 
-## 配置结构
+## PipelineConfig
 
 ```go
 type PipelineConfig struct {
-    BufferSize               uint32        // 缓冲通道的容量
-    FlushSize                uint32        // 批处理数据的最大容量
-    FlushInterval            time.Duration // 定时刷新的时间间隔
-    DrainOnCancel            bool          // 取消时是否进行限时收尾刷新（默认 false）
-    DrainGracePeriod         time.Duration // 收尾刷新最长时间窗口
-    FinalFlushOnCloseTimeout time.Duration // 通道关闭路径的最终 flush 超时（0 表示禁用）
-    MaxConcurrentFlushes     uint32        // 异步 flush 的最大并发数（0 表示不限制）
+	BufferSize               uint32
+	FlushSize                uint32
+	FlushInterval            time.Duration
+	DrainOnCancel            bool
+	DrainGracePeriod         time.Duration
+	FinalFlushOnCloseTimeout time.Duration
+	MaxConcurrentFlushes     uint32
 }
 ```
 
-## 默认配置
+默认值：
 
-基于性能基准测试，Go Pipeline v2 提供了优化的默认配置：
+- `BufferSize: 100`
+- `FlushSize: 50`
+- `FlushInterval: 50ms`
 
-```go
-const (
-    defaultBufferSize    = 100                   // 缓冲区大小
-    defaultFlushSize     = 50                    // 批处理大小
-    defaultFlushInterval = time.Millisecond * 50 // 刷新间隔
-)
-```
-
-### 使用默认配置
-
-你可以使用 `NewPipelineConfig()` 函数创建带有默认值的配置，然后自定义特定参数：
+## 链式配置
 
 ```go
-// 创建带有默认值的配置
-config := gopipeline.NewPipelineConfig()
-
-// 直接使用默认值
-pipeline := gopipeline.NewStandardPipeline(config, flushFunc)
-
-// 或者使用链式方法自定义特定参数
-config = gopipeline.NewPipelineConfig().
-    WithFlushInterval(time.Millisecond * 10).
-    WithBufferSize(200)
-
-pipeline = gopipeline.NewStandardPipeline(config, flushFunc)
-```
-
-可用的配置方法：
-- `NewPipelineConfig()` - 创建带有默认值的配置
-- `WithBufferSize(size uint32)` - 设置缓冲区大小
-- `WithFlushSize(size uint32)` - 设置批处理大小
-- `WithFlushInterval(interval time.Duration)` - 设置刷新间隔
-- `WithDrainOnCancel(enabled bool)` - 启用取消时的限时收尾
-- `WithDrainGracePeriod(d time.Duration)` - 设置收尾刷新最长时间窗口
-- `WithFinalFlushOnCloseTimeout(d time.Duration)` - 设置通道关闭路径的最终 flush 超时
-- `WithMaxConcurrentFlushes(n uint32)` - 限制异步 flush 并发（0 表示不限制）
-- `ValidateOrDefault()` - 校验并回退到安全默认
-
-## 配置参数详解
-
-### BufferSize（缓冲区大小）
-
-**作用**: 控制内部数据通道的缓冲区大小
-
-**默认值**: 100
-
-**建议值**: 
-- 应该 >= FlushSize * 2 以避免阻塞
-- 高并发场景可以适当增大
-
-```go
-standardConfig := gopipeline.PipelineConfig{
-    BufferSize:    200,                   // 推荐为 FlushSize 的 2-4 倍
-    FlushSize:     50,                    // 标准批次大小
-    FlushInterval: time.Millisecond * 50, // 标准刷新间隔
-}
-```
-
-**影响**:
-- 过小：可能导致写入阻塞
-- 过大：增加内存使用，延迟关闭时间
-
-### FlushSize（批处理大小）
-
-**作用**: 控制每次批处理的数据量
-
-**默认值**: 50
-
-**建议值**:
-- 一般场景：20-100
-- 高吞吐场景：100-500
-- 低延迟场景：10-50
-
-```go
-// 不同场景的配置示例
-// 高吞吐量场景
-highThroughputConfig := gopipeline.PipelineConfig{
-    BufferSize:    400,                   // 缓冲区大小为FlushSize的2倍
-    FlushSize:     200,                   // 大批次处理
-    FlushInterval: time.Millisecond * 100, // 适中间隔
-}
-
-// 低延迟场景
-lowLatencyConfig := gopipeline.PipelineConfig{
-    BufferSize:    50,                    // 小缓冲区
-    FlushSize:     20,                    // 小批次处理
-    FlushInterval: time.Millisecond * 10, // 短间隔
-}
-```
-
-**影响**:
-- 过小：增加处理频率，降低吞吐量
-- 过大：增加延迟和内存使用
-
-### DrainOnCancel（取消收尾）
-
-**作用**: 控制上下文取消时是否进行限时收尾刷新
-
-**默认值**: false
-
-**建议值**: 
-- 数据完整性优先：true
-- 快速停止优先：false
-
-```go
-// 启用取消收尾的配置
-gracefulConfig := gopipeline.NewPipelineConfig().
-    WithDrainOnCancel(true).
-    WithDrainGracePeriod(150 * time.Millisecond)
-```
-
-### DrainGracePeriod（收尾时间窗口）
-
-**作用**: 当启用 DrainOnCancel 时的收尾 flush 最长时间窗口
-
-**默认值**: 100ms（内部默认）
-
-**建议值**: 50-200ms
-
-### FinalFlushOnCloseTimeout（最终刷新超时）
-
-**作用**: 通道关闭路径的最终 flush 超时保护
-
-**默认值**: 0（禁用）
-
-**建议值**: 
-- 启用保护：150ms-1s
-- 禁用保护：0
-
-```go
-// 启用最终刷新超时保护
 config := gopipeline.NewPipelineConfig().
-    WithFinalFlushOnCloseTimeout(500 * time.Millisecond)
+	WithBufferSize(200).
+	WithFlushSize(50).
+	WithFlushInterval(50 * time.Millisecond).
+	WithDrainOnCancel(true).
+	WithDrainGracePeriod(150 * time.Millisecond).
+	WithFinalFlushOnCloseTimeout(500 * time.Millisecond).
+	WithMaxConcurrentFlushes(4).
+	ValidateOrDefault()
 ```
 
-### MaxConcurrentFlushes（并发限制）
+## 参数详解
 
-**作用**: 限制异步 flush 的最大并发数
+### BufferSize
 
-**默认值**: 0（不限制）
+- 控制生产者在阻塞前最多可以排队多少数据。
+- 过小会让更多 flush 走超时路径，形成小批次。
+- 过大可以缓冲突发流量，但会提高内存占用。
 
-**建议值**:
-- CPU密集型：CPU核数
-- IO密集型：CPU核数 * 2-4
-- 不限制：0
+### FlushSize
 
-```go
-// 限制并发flush数量
-config := gopipeline.NewPipelineConfig().
-    WithMaxConcurrentFlushes(uint32(runtime.NumCPU()))
+- 达到该值时触发一次 flush。
+- 值越大，越偏吞吐；值越小，越偏延迟。
+
+### FlushInterval
+
+- 未满批次时的尾延迟上限。
+- 值越小，越容易出现小批次；值越大，尾延迟越高。
+
+### DrainOnCancel / DrainGracePeriod
+
+- `DrainOnCancel=false`：取消即停，不再对当前半批做最终 flush。
+- `DrainOnCancel=true`：取消时在 `DrainGracePeriod` 时间窗内尽力 flush 当前半批。
+
+### FinalFlushOnCloseTimeout
+
+- 用于 `DataChan()` 被关闭后的最终 flush 超时控制。
+- `0` 表示禁用；大于 `0` 时会创建一个带超时的新上下文执行最终 flush。
+
+### MaxConcurrentFlushes
+
+- `0` 表示不限制异步 flush 并发。
+- 非零时表示允许同时运行的异步 flush 数量。
+- 该参数还承担硬背压作用：打满后主循环会停止继续推进 intake，让上游写入方感知阻塞。
+
+## FlushSize 与 BufferSize 的关系
+
+推荐关系：
+
+- `BufferSize >= 4 * FlushSize`：更适合有突发的生产流量
+- `BufferSize ~= 2 * FlushSize`：可以工作，但更容易受峰值影响
+- `BufferSize < FlushSize`：会更频繁地产生小批次，不建议作为默认配置
+
+## 调参速查表
+
+### 吞吐优先
+
+- `FlushSize: 64-128`
+- `BufferSize: 4x-10x FlushSize`
+- `FlushInterval: 50-100ms`
+
+### 延迟优先
+
+- `FlushSize: 8-32`
+- `BufferSize: >= 4x FlushSize`
+- `FlushInterval: 1-10ms`
+
+### 内存受限
+
+- `FlushSize: 16-32`
+- `BufferSize: 2x-4x FlushSize`
+- `FlushInterval: 50-200ms`
+
+### 多生产者
+
+- `BufferSize >= (4-10) * FlushSize * ceil(N / NumCPU)`
+
+## 基于成本的估算方法
+
+设：
+
+- `t_item`：单个元素平均处理时间
+- `t_batch`：每批固定开销
+- `alpha`：允许分摊比例，例如 `0.1`
+
+则：
+
+```text
+FlushSize >= ceil(t_batch / (alpha * t_item))
+BufferSize = k * FlushSize, k ∈ [4, 10]
 ```
 
-### FlushInterval（刷新间隔）
+实务上，如果算出来的值极大：
 
-**作用**: 控制定时刷新的时间间隔
+- 关注延迟时，可把 `FlushSize` 夹在 `32-128`
+- 纯吞吐场景，可保留更大值并同步增大 `BufferSize`
 
-**默认值**: 50ms
+## 数据类型语义
 
-**建议值**:
-- 低延迟场景：10-50ms
-- 平衡场景：50-200ms
-- 高吞吐场景：200ms-1s
+通过 `DataChan() chan<- T` 发送时，`T` 的形态会直接影响内存与性能：
 
-```go
-// 不同场景的配置示例
-// 低延迟场景
-lowLatencyConfig := gopipeline.PipelineConfig{
-    BufferSize:    50,                    // 小缓冲区
-    FlushSize:     10,                    // 小批次
-    FlushInterval: time.Millisecond * 10, // 极短间隔
-}
+- `int` / `int64`：按值拷贝，成本低
+- `string`：只拷贝字符串头，不拷贝底层字节
+- `[N]T`：发送时拷贝整个数组
+- `[]T`：只拷贝 slice header，底层数组共享
+- `*T`：只拷贝指针值，共享同一对象
+- 大结构体：按值拷贝，成本可能偏高
 
-// 高吞吐量场景
-highThroughputConfig := gopipeline.PipelineConfig{
-    BufferSize:    1000,              // 大缓冲区
-    FlushSize:     500,               // 大批次
-    FlushInterval: time.Second,       // 长间隔
-}
+建议：
+
+- 发送后保持数据不可变
+- 若发送的是切片或指针，务必确认下游读到的数据不会被生产者继续复用/修改
+- 异步 flush 场景不要复用仍可能被并发 goroutine 读取的底层容器
+
+## Benchmark 建议
+
+2.2.4 不再在站内放置容易过期的性能快照，改为推荐可复现 benchmark：
+
+```bash
+go test -run ^$ -bench . -benchmem ./...
+go test -run ^$ -bench BenchmarkStandardPipeline -benchmem ./tests/...
+go test -run ^$ -bench BenchmarkDeduplicationPipeline -benchmem ./tests/...
 ```
 
-**影响**:
-- 过小：增加CPU使用，可能导致频繁的小批次处理
-- 过大：增加数据处理延迟
+参考环境：
 
-## 场景化配置
-
-### 数据库批量写入
-
-```go
-// 数据库批量插入优化配置
-dbConfig := gopipeline.PipelineConfig{
-    BufferSize:    500,                    // 较大缓冲区
-    FlushSize:     100,                    // 适中批次大小
-    FlushInterval: time.Millisecond * 200, // 适中延迟
-}
-
-pipeline := gopipeline.NewStandardPipeline(dbConfig,
-    func(ctx context.Context, records []Record) error {
-        return db.CreateInBatches(records, len(records)).Error
-    },
-)
-```
-
-### API 调用批处理
-
-```go
-// API调用批处理配置
-apiConfig := gopipeline.PipelineConfig{
-    BufferSize:    100,                   // 适中缓冲区
-    FlushSize:     20,                    // 较小批次（避免API限制）
-    FlushInterval: time.Millisecond * 50, // 低延迟
-}
-
-pipeline := gopipeline.NewStandardPipeline(apiConfig,
-    func(ctx context.Context, requests []APIRequest) error {
-        return batchCallAPI(requests)
-    },
-)
-```
-
-### 日志批量写入
-
-```go
-// 日志批量写入配置
-logConfig := gopipeline.PipelineConfig{
-    BufferSize:    1000,               // 大缓冲区（日志量大）
-    FlushSize:     200,                // 大批次
-    FlushInterval: time.Millisecond * 100, // 适中延迟
-}
-
-pipeline := gopipeline.NewStandardPipeline(logConfig,
-    func(ctx context.Context, logs []LogEntry) error {
-        return writeLogsToFile(logs)
-    },
-)
-```
-
-### 实时数据处理
-
-```go
-// 实时数据处理配置
-realtimeConfig := gopipeline.PipelineConfig{
-    BufferSize:    50,                    // 小缓冲区
-    FlushSize:     10,                    // 小批次
-    FlushInterval: time.Millisecond * 10, // 极低延迟
-}
-
-pipeline := gopipeline.NewStandardPipeline(realtimeConfig,
-    func(ctx context.Context, events []Event) error {
-        return processRealTimeEvents(events)
-    },
-)
-```
-
-## 性能调优指南
-
-### 1. 确定性能目标
-
-首先明确你的性能目标：
-
-- **吞吐量优先**: 增大 FlushSize 和 FlushInterval
-- **延迟优先**: 减小 FlushSize 和 FlushInterval
-- **内存优先**: 减小 BufferSize 和 FlushSize
-
-### 2. 基准测试
-
-使用基准测试来验证配置效果：
-
-```go
-func BenchmarkPipelineConfig(b *testing.B) {
-    configs := []gopipeline.PipelineConfig{
-        {BufferSize: 50, FlushSize: 25, FlushInterval: time.Millisecond * 25},
-        {BufferSize: 100, FlushSize: 50, FlushInterval: time.Millisecond * 50},
-        {BufferSize: 200, FlushSize: 100, FlushInterval: time.Millisecond * 100},
-    }
-    
-    for i, config := range configs {
-        b.Run(fmt.Sprintf("Config%d", i), func(b *testing.B) {
-            pipeline := gopipeline.NewStandardPipeline(config, 
-                func(ctx context.Context, data []int) error {
-                    // 模拟处理
-                    time.Sleep(time.Microsecond * 100)
-                    return nil
-                })
-            
-            // 基准测试逻辑...
-        })
-    }
-}
-```
-
-### 3. 监控指标
-
-监控关键指标来优化配置：
-
-```go
-type PipelineMetrics struct {
-    TotalProcessed   int64
-    BatchCount       int64
-    AverageLatency   time.Duration
-    ErrorCount       int64
-    MemoryUsage      int64
-}
-
-func monitorPipeline(pipeline Pipeline[Data]) {
-    ticker := time.NewTicker(time.Second * 10)
-    defer ticker.Stop()
-    
-    for range ticker.C {
-        // 收集和记录指标
-        metrics := collectMetrics(pipeline)
-        log.Printf("Pipeline Metrics: %+v", metrics)
-        
-        // 根据指标调整配置
-        if metrics.AverageLatency > time.Millisecond*100 {
-            // 考虑减小批次大小或间隔
-        }
-    }
-}
-```
-
-## 动态参数调整
-
-v2.2.2 新增运行时动态调整功能，支持安全地调整关键参数：
-
-### 支持的动态参数
-
-- `UpdateFlushSize(n uint32)` - 调整批次大小
-- `UpdateFlushInterval(d time.Duration)` - 调整刷新间隔
-
-### 使用示例
-
-```go
-// 基本动态调整
-pipeline.UpdateFlushSize(128)
-pipeline.UpdateFlushInterval(25 * time.Millisecond)
-
-// 根据系统负载动态调整
-func adaptiveConfig(pipeline *gopipeline.StandardPipeline[Data]) {
-    ticker := time.NewTicker(time.Second * 30)
-    defer ticker.Stop()
-    
-    for range ticker.C {
-        load := getSystemLoad()
-        memUsage := getMemoryUsage()
-        
-        switch {
-        case load > 0.8:
-            // 高负载：减小批次，增加频率
-            pipeline.UpdateFlushSize(25)
-            pipeline.UpdateFlushInterval(25 * time.Millisecond)
-            
-        case memUsage > 0.7:
-            // 高内存使用：减小批次
-            pipeline.UpdateFlushSize(30)
-            pipeline.UpdateFlushInterval(50 * time.Millisecond)
-            
-        default:
-            // 正常情况：使用标准配置
-            pipeline.UpdateFlushSize(50)
-            pipeline.UpdateFlushInterval(50 * time.Millisecond)
-        }
-    }
-}
-```
-
-### 注意事项
-
-- FlushSize 的变化不会影响正在构建的批次
-- FlushInterval 更新在下一次定时重置时生效
-- 所有动态调整都是线程安全的
-
-## 配置验证
-
-### 配置合理性检查
-
-```go
-func validateConfig(config gopipeline.PipelineConfig) error {
-    if config.BufferSize < config.FlushSize*2 {
-        return fmt.Errorf("BufferSize (%d) should be at least 2x FlushSize (%d)", 
-            config.BufferSize, config.FlushSize)
-    }
-    
-    if config.FlushSize == 0 {
-        return fmt.Errorf("FlushSize cannot be zero")
-    }
-    
-    if config.FlushInterval <= 0 {
-        return fmt.Errorf("FlushInterval must be positive")
-    }
-    
-    return nil
-}
-```
-
-### 动态配置调整
-
-```go
-type DynamicPipeline struct {
-    pipeline Pipeline[Data]
-    config   gopipeline.PipelineConfig
-    mutex    sync.RWMutex
-}
-
-func (dp *DynamicPipeline) UpdateConfig(newConfig gopipeline.PipelineConfig) error {
-    if err := validateConfig(newConfig); err != nil {
-        return err
-    }
-    
-    dp.mutex.Lock()
-    defer dp.mutex.Unlock()
-    
-    // 重新创建管道（实际实现可能需要更复杂的逻辑）
-    dp.config = newConfig
-    // dp.pipeline = recreatePipeline(newConfig)
-    
-    return nil
-}
-```
-
-## 常见问题和解决方案
-
-### 问题1: 数据处理延迟过高
-
-**症状**: 数据从添加到处理完成的时间过长
-
-**可能原因**:
-- FlushInterval 设置过大
-- FlushSize 设置过大
-- 处理函数执行时间过长
-
-**解决方案**:
-```go
-// 减小刷新间隔和批次大小
-lowLatencyConfig := gopipeline.PipelineConfig{
-    BufferSize:    50,                    // 适配小批次的缓冲区
-    FlushSize:     20,                    // 减小批次
-    FlushInterval: time.Millisecond * 10, // 减小间隔
-}
-```
-
-### 问题2: 内存使用过高
-
-**症状**: 程序内存使用持续增长
-
-**可能原因**:
-- BufferSize 设置过大
-- FlushSize 设置过大（特别是去重管道）
-- 错误通道未被消费
-
-**解决方案**:
-```go
-// 减小缓冲区和批次大小
-memoryOptimizedConfig := gopipeline.PipelineConfig{
-    BufferSize:    50,                    // 减小缓冲区
-    FlushSize:     25,                    // 减小批次
-    FlushInterval: time.Millisecond * 50, // 保持适中间隔
-}
-
-// 确保消费错误通道
-errorChan := pipeline.ErrorChan(10)
-go func() {
-    for {
-        select {
-        case err, ok := <-errorChan:
-            if !ok {
-                return
-            }
-            log.Printf("Error: %v", err)
-        case <-ctx.Done():
-            return
-        }
-    }
-}()
-```
-
-### 问题3: 吞吐量不足
-
-**症状**: 数据处理速度跟不上数据产生速度
-
-**可能原因**:
-- FlushSize 设置过小
-- FlushInterval 设置过小
-- BufferSize 设置过小导致阻塞
-
-**解决方案**:
-```go
-// 增大批次大小和缓冲区
-highThroughputConfig := gopipeline.PipelineConfig{
-    BufferSize:    500,                    // 增大缓冲区
-    FlushSize:     100,                    // 增大批次
-    FlushInterval: time.Millisecond * 100, // 适中间隔
-}
-```
-
-## 最佳实践总结
-
-1. **从默认配置开始**: 默认配置适用于大多数场景
-2. **基于实际需求调整**: 根据延迟、吞吐量、内存要求调整
-3. **进行基准测试**: 使用实际数据进行性能测试
-4. **监控关键指标**: 持续监控性能指标
-5. **配置验证**: 确保配置参数的合理性
-6. **文档化配置**: 记录配置选择的原因和测试结果
-
-## 下一步
-
-- [API 参考](./api-reference) - 完整的API文档
-- [标准管道](./standard-pipeline) - 标准管道使用指南
-- [去重管道](./deduplication-pipeline) - 去重管道使用指南
+- 日期：2026-04-08
+- 平台：darwin/arm64
+- CPU：Apple M4

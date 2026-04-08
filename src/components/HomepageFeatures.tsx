@@ -7,39 +7,39 @@ const FeatureList = [
   {
     title: translate({
       id: 'homepage.features.generics.title',
-      message: '泛型支持',
+      message: 'v2.2.4 同步',
       description: 'Title for generics feature'
     }),
     Svg: require('@site/static/img/performance.svg').default,
     description: translate({
       id: 'homepage.features.generics.description',
-      message: '基于 Go 1.20+ 泛型的类型安全实现，支持任意数据类型，提供编译时类型检查。',
+      message: '文档已同步到 2.2.4，包括同步路径复用、Metrics 热路径优化与版本说明。',
       description: 'Description for generics feature'
     }),
   },
   {
     title: translate({
       id: 'homepage.features.batch.title',
-      message: '批处理',
+      message: '运行语义清晰',
       description: 'Title for batch processing feature'
     }),
     Svg: require('@site/static/img/easy-to-use.svg').default,
     description: translate({
       id: 'homepage.features.batch.description',
-      message: '支持按大小和时间间隔自动批处理，优化数据处理效率，减少系统调用开销。',
+      message: '统一说明 done、ErrorChan、FinalFlushOnCloseTimeout 与 MaxConcurrentFlushes 的行为。',
       description: 'Description for batch processing feature'
     }),
   },
   {
     title: translate({
       id: 'homepage.features.concurrent.title',
-      message: '并发安全',
+      message: '多语言已同步',
       description: 'Title for concurrency feature'
     }),
     Svg: require('@site/static/img/error-handling.svg').default,
     description: translate({
       id: 'homepage.features.concurrent.description',
-      message: '内置 goroutine 安全机制，支持高并发场景，确保数据处理的线程安全性。',
+      message: '英文、法文、俄文已跟进新版结构与核心语义，避免旧 API 示例残留。',
       description: 'Description for concurrency feature'
     }),
   },

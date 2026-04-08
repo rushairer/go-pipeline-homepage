@@ -19,6 +19,10 @@
     "message": "Introduction",
     "description": "The label for link Introduction in sidebar tutorialSidebar"
   },
+  "sidebar.tutorialSidebar.link.v2.2.4 What's New": {
+    "message": "What's New in v2.2.4",
+    "description": "The label for link v2.2.4 What's New in sidebar tutorialSidebar"
+  },
   "sidebar.tutorialSidebar.link.Standard Pipeline": {
     "message": "Standard Pipeline",
     "description": "The label for link Standard Pipeline in sidebar tutorialSidebar"

@@ -4,182 +4,137 @@ sidebar_position: 1
 
 # Go Pipeline v2 介绍
 
-Go Pipeline v2 是一个面向 Go 的高性能批处理管道框架，基于泛型与并发安全，内置按批大小与时间窗口的攒批、背压与优雅关闭、错误与指标、可限流的异步 flush 与动态调参，提供标准与去重两种管道模式。
+Go Pipeline v2 是一个面向 Go 的高性能批处理管道框架，基于泛型与并发安全，内置按批大小与时间窗口的攒批、背压与优雅关闭、错误与指标钩子、可限流的异步 flush 与动态调参，提供标准与去重两种管道模式。
 
-## 🚀 核心特性
+## 核心能力
 
-- **泛型支持**: 基于Go 1.20+泛型，类型安全
-- **批处理机制**: 支持按大小和时间间隔自动批处理
-- **并发安全**: 内置goroutine安全机制
-- **灵活配置**: 可自定义缓冲区大小、批处理大小和刷新间隔
-- **错误处理**: 完善的错误处理和传播机制
-- **两种模式**: 标准批处理和去重批处理
-- **同步/异步**: 支持同步和异步执行模式
-- **遵循Go惯例**: 采用"谁写谁关闭"的通道管理原则
-- **便捷API**: 新增 Start() 和 Run() 方法，减少样板代码
-- **动态调参**: 支持运行时安全调整关键参数
-- **优雅关闭**: 支持取消时的限时收尾和最终flush超时保护
+- 泛型支持，基于 Go 1.20+，类型安全
+- 按批大小和时间窗口自动 flush
+- 支持同步和异步两种执行方式
+- 支持 `Start()` / `Run()` 便捷 API
+- 支持 `DrainOnCancel`、`FinalFlushOnCloseTimeout`、`MaxConcurrentFlushes`
+- 支持 Logger / Metrics hooks
+- 标准管道与去重管道共用一致的配置与关闭语义
 
-## 📋 系统要求
-
-- Go 1.20+ (支持泛型)
-- 支持 Linux、macOS、Windows
-
-## 📦 安装
+## 安装
 
 ```bash
 go get github.com/rushairer/go-pipeline/v2@latest
 ```
 
-## 🏗️ 架构设计
-
-```
-┌─────────────────┐    ┌──────────────────┐    ┌─────────────────┐
-│   Data Input    │───▶│   Buffer Channel │───▶│  Batch Processor│
-└─────────────────┘    └──────────────────┘    └─────────────────┘
-                                │                        │
-                                ▼                        ▼
-                       ┌──────────────────┐    ┌─────────────────┐
-                       │   Timer Ticker   │    │   Flush Handler │
-                       └──────────────────┘    └─────────────────┘
-                                │                        │
-                                └────────┬───────────────┘
-                                         ▼
-                                ┌─────────────────┐
-                                │  Error Channel  │
-                                └─────────────────┘
-```
-
-## 📦 核心组件
-
-### 接口定义
-
-- **`PipelineChannel[T]`**: 定义管道通道访问接口
-- **`Performer`**: 定义执行管道操作的接口
-- **`DataProcessor[T]`**: 定义批处理数据的核心接口
-- **`Pipeline[T]`**: 组合所有管道功能的通用接口
-
-### 实现类型
-
-- **`StandardPipeline[T]`**: 标准批处理管道，数据按顺序批处理
-- **`DeduplicationPipeline[T]`**: 去重批处理管道，基于唯一键去重
-- **`PipelineImpl[T]`**: 通用管道实现，提供基础功能
-
-## 💡 快速开始
-
-### 使用便捷API（推荐）
+## 快速开始
 
 ```go
 package main
 
 import (
-    "context"
-    "fmt"
-    "log"
-    "time"
-    
-    gopipeline "github.com/rushairer/go-pipeline/v2"
+	"context"
+	"fmt"
+	"log"
+	"time"
+
+	gopipeline "github.com/rushairer/go-pipeline/v2"
 )
 
 func main() {
-    // 创建标准管道
-    pipeline := gopipeline.NewDefaultStandardPipeline(
-        func(ctx context.Context, batchData []int) error {
-            fmt.Printf("处理批次数据: %v\n", batchData)
-            return nil
-        },
-    )
-    
-    ctx, cancel := context.WithTimeout(context.Background(), time.Second*10)
-    defer cancel()
-    
-    // 使用便捷API启动
-    done, errs := pipeline.Start(ctx)
-    
-    // 监听错误
-    go func() {
-        for err := range errs {
-            log.Printf("处理错误: %v", err)
-        }
-    }()
-    
-    // 添加数据
-    dataChan := pipeline.DataChan()
-    go func() {
-        defer close(dataChan) // 谁写谁关闭
-        for i := 0; i < 100; i++ {
-            select {
-            case dataChan <- i:
-            case <-ctx.Done():
-                return
-            }
-        }
-    }()
-    
-    // 等待处理完成
-    <-done
+	pipeline := gopipeline.NewDefaultStandardPipeline(
+		func(ctx context.Context, batch []int) error {
+			fmt.Printf("flush batch: %v\n", batch)
+			return nil
+		},
+	)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	done, errs := pipeline.Start(ctx)
+
+	go func() {
+		for err := range errs {
+			log.Printf("pipeline error: %v", err)
+		}
+	}()
+
+	dataChan := pipeline.DataChan()
+	go func() {
+		defer close(dataChan)
+		for i := 0; i < 100; i++ {
+			select {
+			case dataChan <- i:
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+
+	<-done
 }
 ```
 
-### 同步运行示例
+## 运行语义
 
-```go
-func syncExample() {
-    pipeline := gopipeline.NewDefaultStandardPipeline(
-        func(ctx context.Context, batchData []int) error {
-            fmt.Printf("处理批次数据: %v\n", batchData)
-            return nil
-        },
-    )
-    
-    ctx, cancel := context.WithTimeout(context.Background(), time.Second*10)
-    defer cancel()
-    
-    // 同步运行，设置错误通道容量为128
-    if err := pipeline.Run(ctx, 128); err != nil {
-        log.Printf("管道执行错误: %v", err)
-    }
-}
+- 推荐使用 `Start(ctx)` 启动异步管道，并等待返回的 `done` 通道完成。
+- 推荐消费 `errs` / `ErrorChan()`，但这不是强制要求；如果错误通道满了，新错误可能被丢弃。
+- `ErrorChan(size)` 首次调用会确定容量，后续调用的 `size` 会被忽略。
+- 正常收尾时应由生产方关闭 `DataChan()`；框架会处理剩余批次并退出。
+- `MaxConcurrentFlushes` 不只是并发上限，也是有意设计的硬背压机制。打满时，主循环会停止继续派发 flush，并把阻塞反馈给上游。
+
+## 架构概览
+
+```text
+Data Input -> Buffer Channel -> Batch Processor -> Flush Handler
+                      |                               |
+                      +---------- Timer --------------+
+                                      |
+                                      v
+                                Error Channel
 ```
 
-## 📋 配置参数
+## 核心组件
+
+### 接口
+
+- `PipelineChannel[T]`：访问 `DataChan`、`ErrorChan`、`Done`
+- `Performer[T]`：执行 `AsyncPerform`、`SyncPerform`、`Start`、`Run`
+- `Pipeline[T]`：组合完整能力的总接口
+
+### 实现
+
+- `StandardPipeline[T]`：标准批处理
+- `DeduplicationPipeline[T]`：基于唯一键去重的批处理
+- `PipelineImpl[T]`：通用基础实现
+
+## 配置概览
 
 ```go
 type PipelineConfig struct {
-    BufferSize               uint32        // 缓冲通道的容量 (默认: 100)
-    FlushSize                uint32        // 批处理数据的最大容量 (默认: 50)
-    FlushInterval            time.Duration // 定时刷新的时间间隔 (默认: 50ms)
-    DrainOnCancel            bool          // 取消时是否进行限时收尾刷新（默认 false）
-    DrainGracePeriod         time.Duration // 收尾刷新最长时间窗口
-    FinalFlushOnCloseTimeout time.Duration // 通道关闭路径的最终 flush 超时（0 表示禁用）
-    MaxConcurrentFlushes     uint32        // 异步 flush 的最大并发数（0 表示不限制）
+	BufferSize               uint32
+	FlushSize                uint32
+	FlushInterval            time.Duration
+	DrainOnCancel            bool
+	DrainGracePeriod         time.Duration
+	FinalFlushOnCloseTimeout time.Duration
+	MaxConcurrentFlushes     uint32
 }
 ```
 
-### 🎯 性能优化的默认值
+默认值：
 
-基于性能基准测试，v2.2.2 版本采用了优化的默认配置：
+- `BufferSize: 100`
+- `FlushSize: 50`
+- `FlushInterval: 50ms`
 
-- **BufferSize: 100** - 缓冲区大小，应该 >= FlushSize * 2 以避免阻塞
-- **FlushSize: 50** - 批处理大小，性能测试显示 50 左右为最优
-- **FlushInterval: 50ms** - 刷新间隔，平衡延迟和吞吐量
+## 2.2.4 更新重点
 
-### 🔧 便捷配置方法
-
-```go
-// 使用链式方法创建配置
-config := gopipeline.NewPipelineConfig().
-    WithFlushInterval(time.Millisecond * 10).
-    WithBufferSize(200).
-    WithDrainOnCancel(true).
-    WithDrainGracePeriod(150 * time.Millisecond)
-
-pipeline := gopipeline.NewStandardPipeline(config, flushFunc)
-```
+- 同步 flush 路径复用批容器，减少分配
+- 仅在启用 `MetricsHook` 时记录 flush 耗时，降低热路径开销
+- 明确 `MaxConcurrentFlushes` 的硬背压语义
+- 修正文档中 `done`、`ErrorChan` 和 benchmark 的推荐写法
 
 ## 下一步
 
-- [标准管道](./standard-pipeline) - 了解标准批处理管道的使用
-- [去重管道](./deduplication-pipeline) - 了解去重批处理管道的使用
-- [配置指南](./configuration) - 详细的配置参数说明
-- [API 参考](./api-reference) - 完整的API文档
+- [v2.2.4 更新说明](./whats-new-v2.2.4)
+- [标准管道](./standard-pipeline)
+- [去重管道](./deduplication-pipeline)
+- [配置指南](./configuration)
+- [API 参考](./api-reference)

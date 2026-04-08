@@ -4,7 +4,7 @@ import type * as Preset from '@docusaurus/preset-classic';
 
 const config: Config = {
   title: 'Go Pipeline',
-  tagline: '高性能Go语言管道处理库',
+  tagline: 'Go 批处理管道框架，已同步至 v2.2.4 文档',
   favicon: 'img/logo.svg',
 
   // Set the production url of your site here
@@ -16,7 +16,7 @@ const config: Config = {
   // GitHub pages deployment config.
   // If you aren't using GitHub pages, you don't need these.
   organizationName: 'rushairer', // Usually your GitHub org/user name.
-  projectName: 'go-pipeline', // Usually your repo name.
+  projectName: 'go-pipeline-homepage', // Usually your repo name.
 
   onBrokenLinks: 'throw',
   onBrokenMarkdownLinks: 'warn',

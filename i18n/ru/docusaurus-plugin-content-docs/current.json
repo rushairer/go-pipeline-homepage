@@ -19,6 +19,10 @@
     "message": "Введение в Go Pipeline v2",
     "description": "Метка для документа intro в боковой панели tutorialSidebar"
   },
+  "sidebar.tutorialSidebar.doc.whats-new-v2.2.4": {
+    "message": "Что нового в v2.2.4",
+    "description": "Метка для документа whats-new-v2.2.4 в боковой панели tutorialSidebar"
+  },
   "sidebar.tutorialSidebar.doc.standard-pipeline": {
     "message": "Стандартный пайплайн",
     "description": "Метка для документа standard-pipeline в боковой панели tutorialSidebar"

@@ -19,6 +19,10 @@
     "message": "Introduction",
     "description": "The label for the doc item intro in sidebar tutorialSidebar"
   },
+  "sidebar.tutorialSidebar.doc.whats-new-v2.2.4": {
+    "message": "Nouveautés v2.2.4",
+    "description": "The label for the doc item whats-new-v2.2.4 in sidebar tutorialSidebar"
+  },
   "sidebar.tutorialSidebar.doc.configuration": {
     "message": "Configuration",
     "description": "The label for the doc item configuration in sidebar tutorialSidebar"
