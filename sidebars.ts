@@ -15,7 +15,7 @@ const sidebars: SidebarsConfig = {
     {
       type: 'category',
       label: '配置和API',
-      items: ['configuration', 'api-reference'],
+      items: ['configuration', 'concurrency-contract', 'api-reference'],
     },
   ],
 };

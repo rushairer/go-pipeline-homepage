@@ -4,17 +4,18 @@ sidebar_position: 1
 
 # Go Pipeline v2 介绍
 
-Go Pipeline v2 是一个面向 Go 的高性能批处理管道框架，基于泛型与并发安全，内置按批大小与时间窗口的攒批、背压与优雅关闭、错误与指标钩子、可限流的异步 flush 与动态调参，提供标准与去重两种管道模式。
+Go Pipeline v2 是一个面向 Go 的高性能批处理管道框架，基于泛型与并发安全，内置按批大小与时间窗口的攒批、显式背压、错误与指标钩子、可限流的异步 flush 与动态调参，提供标准与去重两种管道模式。
 
 ## 核心能力
 
 - 泛型支持，基于 Go 1.20+，类型安全
 - 按批大小和时间窗口自动 flush
-- 支持同步和异步两种执行方式
-- 支持 `Start()` / `Run()` 便捷 API
+- `AsyncPerform` 支持 batch flush 并发执行
+- `Start()` 提供调用方非阻塞启动封装，`Run()` 提供同步便捷入口
 - 支持 `DrainOnCancel`、`FinalFlushOnCloseTimeout`、`MaxConcurrentFlushes`
+- `ErrorChan` 为 non-blocking / best-effort 错误观测
 - 支持 Logger / Metrics hooks
-- 标准管道与去重管道共用一致的配置与关闭语义
+- 标准管道与去重管道共用一致的配置和并发语义
 
 ## 安装
 
@@ -50,8 +51,13 @@ func main() {
 	done, errs := pipeline.Start(ctx)
 
 	go func() {
-		for err := range errs {
-			log.Printf("pipeline error: %v", err)
+		for {
+			select {
+			case err := <-errs:
+				log.Printf("pipeline error: %v", err)
+			case <-done:
+				return
+			}
 		}
 	}()
 
@@ -73,30 +79,40 @@ func main() {
 
 ## 运行语义
 
-- 推荐使用 `Start(ctx)` 启动异步管道，并等待返回的 `done` 通道完成。
-- 推荐消费 `errs` / `ErrorChan()`，但这不是强制要求；如果错误通道满了，新错误可能被丢弃。
-- `ErrorChan(size)` 首次调用会确定容量，后续调用的 `size` 会被忽略。
-- 正常收尾时应由生产方关闭 `DataChan()`；框架会处理剩余批次并退出。
-- `MaxConcurrentFlushes` 不只是并发上限，也是有意设计的硬背压机制。打满时，主循环会停止继续派发 flush，并把阻塞反馈给上游。
+- `AsyncPerform(ctx)` 会在调用方 goroutine 中运行接收/攒批循环；“Async”指 batch flush 可并发执行。
+- 需要调用方立即返回时，推荐使用 `Start(ctx)`。
+- `Start(ctx)` 返回的 `done` 表示当前 **run loop** 已结束，不是此前已派发 async flush 的全局 join barrier。
+- `errs` / `ErrorChan()` 是 best-effort 错误观测；缓冲满时错误事件可能被丢弃，可通过 `MetricsHook.ErrorDropped()` 观测。
+- 任何失败都不能丢的场景，应由 processor 或上层系统持久化失败数据。
+- 正常收尾时由生产方关闭 `DataChan()`；框架会同步处理当前未满的尾批次并结束 run loop。
+- `MaxConcurrentFlushes` 不只是并发上限，也是硬背压机制；容量打满时会把压力传回上游。
 
 ## 架构概览
 
 ```text
-Data Input -> Buffer Channel -> Batch Processor -> Flush Handler
-                      |                               |
-                      +---------- Timer --------------+
-                                      |
-                                      v
-                                Error Channel
+Producer -> DataChan -> Batch Accumulator -> Async Flush Workers
+                |               |                  |
+                |               +---- Timer -------+
+                |                                  |
+                +-------- explicit backpressure ---+
+                                                   |
+                                                   v
+                                         best-effort ErrorChan
 ```
 
 ## 核心组件
 
 ### 接口
 
-- `PipelineChannel[T]`：访问 `DataChan`、`ErrorChan`、`Done`
-- `Performer[T]`：执行 `AsyncPerform`、`SyncPerform`、`Start`、`Run`
-- `Pipeline[T]`：组合完整能力的总接口
+- `PipelineChannel[T]`：`DataChan`、`ErrorChan`
+- `Performer[T]`：`AsyncPerform`、`SyncPerform`
+- `Pipeline[T]`：组合 `PipelineChannel`、`Performer`、`DataProcessor`
+
+### 具体类型辅助方法
+
+- `Start(ctx)`：非阻塞启动 `AsyncPerform`
+- `Run(ctx, errBuf)`：同步便捷入口
+- `Done()`：获取当前 run loop 的完成信号
 
 ### 实现
 
@@ -124,16 +140,9 @@ type PipelineConfig struct {
 - `FlushSize: 50`
 - `FlushInterval: 50ms`
 
-## 2.2.4 更新重点
-
-- 同步 flush 路径复用批容器，减少分配
-- 仅在启用 `MetricsHook` 时记录 flush 耗时，降低热路径开销
-- 明确 `MaxConcurrentFlushes` 的硬背压语义
-- 修正文档中 `done`、`ErrorChan` 和 benchmark 的推荐写法
-
 ## 下一步
 
-- [v2.2.4 更新说明](./whats-new-v2.2.4)
+- [并发与生命周期契约](./concurrency-contract)
 - [标准管道](./standard-pipeline)
 - [去重管道](./deduplication-pipeline)
 - [配置指南](./configuration)

@@ -1,10 +1,10 @@
 ---
-sidebar_position: 6
+sidebar_position: 7
 ---
 
 # API 参考
 
-本文档聚焦公开 API 以及 2.2.4 已统一的语义说明。
+本文以当前 `main` 的公开接口和已固化的并发契约为准。
 
 ## 核心接口
 
@@ -24,15 +24,13 @@ type Pipeline[T any] interface {
 type PipelineChannel[T any] interface {
 	DataChan() chan<- T
 	ErrorChan(size int) <-chan error
-	Done() <-chan struct{}
 }
 ```
 
 语义：
 
-- `DataChan()`：生产者写入数据的唯一入口
-- `ErrorChan(size)`：首次调用决定缓冲区大小；后续 `size` 被忽略
-- `Done()`：管道完全退出时关闭
+- `DataChan()`：生产者写入数据的入口；受 `BufferSize` 和下游背压影响，写入可能阻塞。
+- `ErrorChan(size)`：首次调用决定缓冲区大小；后续 `size` 被忽略。标准实现为 non-blocking / best-effort 错误观测，缓冲满时允许丢弃错误事件。
 
 ### Performer[T any]
 
@@ -40,38 +38,39 @@ type PipelineChannel[T any] interface {
 type Performer[T any] interface {
 	AsyncPerform(ctx context.Context) error
 	SyncPerform(ctx context.Context) error
-	Start(ctx context.Context) (<-chan struct{}, <-chan error)
-	Run(ctx context.Context, errBuf int) error
 }
 ```
 
 语义：
 
-- `Start(ctx)`：推荐的异步入口，返回 `done` 和 `errs`
-- `Run(ctx, errBuf)`：推荐的同步入口
-- 同一实例不能并发启动，多次同时启动会返回 `ErrAlreadyRunning`
+- `AsyncPerform(ctx)`：调用本身占用当前 goroutine；“Async”指 batch flush 可并发执行。
+- `SyncPerform(ctx)`：batch flush 在当前执行路径串行完成。
+- 同一实例不能并发启动，多次同时启动会返回 `ErrAlreadyRunning`。
 
-## 便捷 API
+## `PipelineImpl` 便捷方法
+
+`Start`、`Run` 和 `Done` 是具体 pipeline 类型继承的辅助方法，不属于 `Performer` / `PipelineChannel` 接口本身。
 
 ### Start
 
 ```go
 done, errs := pipeline.Start(ctx)
-
-go func() {
-	for err := range errs {
-		log.Printf("pipeline error: %v", err)
-	}
-}()
-
-<-done
 ```
 
-要点：
+- `Start(ctx)` 是 `AsyncPerform` 的非阻塞 goroutine 封装。
+- `done` 表示本次 **run loop** 已结束。
+- `done` 不是此前已派发 async flush 的全局 join barrier。
+- `errs` 与 `ErrorChan` 一样是 best-effort 观测通道，不是 durable failure queue。
 
-- 判断完成应等待 `done`，而不是等待错误通道关闭
-- 推荐消费 `errs`，但不是强制要求
-- 若错误通道已满，后续错误可能被丢弃
+### Done
+
+```go
+done := pipeline.Done()
+```
+
+`Done()` 主要用于 run 已经启动后，从其他位置获取当前运行的完成信号。通过 `Start(ctx)` 启动时，优先使用 `Start` 返回的 run-bound `done`。
+
+如果业务需要“所有副作用都已持久化完成”的强完成语义，应由 processor 或上层 runtime 自己实现 completion barrier。
 
 ### Run
 
@@ -82,6 +81,8 @@ if err := pipeline.Run(ctx, 128); err != nil {
 	}
 }
 ```
+
+`Run(ctx, errBuf)` 初始化错误通道容量后同步执行 `SyncPerform`。
 
 ## 配置类型
 
@@ -116,14 +117,8 @@ func (c PipelineConfig) ValidateOrDefault() PipelineConfig
 ```go
 type FlushStandardFunc[T any] func(ctx context.Context, batchData []T) error
 
-func NewDefaultStandardPipeline[T any](
-	flushFunc FlushStandardFunc[T],
-) *StandardPipeline[T]
-
-func NewStandardPipeline[T any](
-	config PipelineConfig,
-	flushFunc FlushStandardFunc[T],
-) *StandardPipeline[T]
+func NewDefaultStandardPipeline[T any](flushFunc FlushStandardFunc[T]) *StandardPipeline[T]
+func NewStandardPipeline[T any](config PipelineConfig, flushFunc FlushStandardFunc[T]) *StandardPipeline[T]
 ```
 
 ## 去重管道
@@ -135,14 +130,8 @@ type UniqueKeyData interface {
 
 type FlushDeduplicationFunc[T UniqueKeyData] func(ctx context.Context, batchData map[string]T) error
 
-func NewDefaultDeduplicationPipeline[T UniqueKeyData](
-	flushFunc FlushDeduplicationFunc[T],
-) *DeduplicationPipeline[T]
-
-func NewDeduplicationPipeline[T UniqueKeyData](
-	config PipelineConfig,
-	flushFunc FlushDeduplicationFunc[T],
-) *DeduplicationPipeline[T]
+func NewDefaultDeduplicationPipeline[T UniqueKeyData](flushFunc FlushDeduplicationFunc[T]) *DeduplicationPipeline[T]
+func NewDeduplicationPipeline[T UniqueKeyData](config PipelineConfig, flushFunc FlushDeduplicationFunc[T]) *DeduplicationPipeline[T]
 ```
 
 ## Metrics 与 Logger Hooks
@@ -155,18 +144,22 @@ type MetricsHook interface {
 }
 ```
 
-- 2.2.4 起，只有在配置了 `MetricsHook` 时才会记录 flush 耗时，避免热路径无意义开销。
-- 错误通道满导致错误被丢弃时，会通过 `ErrorDropped()` 上报。
-- `WithLogger()` / `WithMetrics()` 适合接入现有日志和 Prometheus 指标体系。
+- 只有配置 `MetricsHook` 时才记录 flush 耗时，避免热路径无意义开销。
+- 错误成功写入错误通道时触发 `Error(err)`。
+- 错误通道满导致错误事件被丢弃时触发 `ErrorDropped()`。
+- `WithLogger()` / `WithMetrics()` 可接入现有日志和 Prometheus 指标体系。
 
-## 公开错误与行为约束
+## 公开错误
 
-- `ErrAlreadyRunning`：同一 pipeline 实例被并发启动
-- `ErrContextIsClosed`：上下文已取消或提前结束
-- `ErrContextDrained`：取消时已完成限时 drain
+- `ErrAlreadyRunning`：同一 pipeline 实例被并发启动。
+- `ErrContextIsClosed`：上下文已取消或提前结束。
+- `ErrContextDrained`：取消时执行过限时 drain。
 
-## 关键行为说明
+## 关键行为
 
-- `MaxConcurrentFlushes` 是公开配置，也是公开行为语义的一部分；它会把背压传回生产者。
-- 关闭 `DataChan()` 后，框架会尝试 flush 当前剩余批次。
-- 若设置了 `FinalFlushOnCloseTimeout`，最终 flush 使用带超时的上下文。
+- `MaxConcurrentFlushes` 同时是并发上限和硬背压边界。
+- 关闭 `DataChan()` 后，框架会同步 flush 当前尚未满的尾批次，然后结束 run loop。
+- 该 run-loop 完成信号不等同于此前所有 async flush 已 join。
+- `FinalFlushOnCloseTimeout` 只约束关闭路径上的最终尾批次 flush。
+
+参见 [并发与生命周期契约](./concurrency-contract)。

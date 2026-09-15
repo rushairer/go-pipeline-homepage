@@ -4,7 +4,7 @@ import type * as Preset from '@docusaurus/preset-classic';
 
 const config: Config = {
   title: 'Go Pipeline',
-  tagline: 'Go 批处理管道框架，已同步至 v2.2.4 文档',
+  tagline: 'Go 高性能批处理管道：并发 flush、显式背压与清晰生命周期语义',
   favicon: 'img/logo.svg',
 
   // Set the production url of your site here
@@ -14,34 +14,20 @@ const config: Config = {
   baseUrl: '/go-pipeline-homepage/',
 
   // GitHub pages deployment config.
-  // If you aren't using GitHub pages, you don't need these.
-  organizationName: 'rushairer', // Usually your GitHub org/user name.
-  projectName: 'go-pipeline-homepage', // Usually your repo name.
+  organizationName: 'rushairer',
+  projectName: 'go-pipeline-homepage',
 
   onBrokenLinks: 'throw',
   onBrokenMarkdownLinks: 'warn',
 
-  // 设置网站多语言支持
   i18n: {
     defaultLocale: 'zh',
     locales: ['zh', 'en', 'fr', 'ru'],
     localeConfigs: {
-      zh: {
-        label: '中文',
-        direction: 'ltr',
-      },
-      en: {
-        label: 'English',
-        direction: 'ltr',
-      },
-      fr: {
-        label: 'Français',
-        direction: 'ltr',
-      },
-      ru: {
-        label: 'Русский',
-        direction: 'ltr',
-      },
+      zh: { label: '中文', direction: 'ltr' },
+      en: { label: 'English', direction: 'ltr' },
+      fr: { label: 'Français', direction: 'ltr' },
+      ru: { label: 'Русский', direction: 'ltr' },
     },
   },
 
@@ -51,17 +37,11 @@ const config: Config = {
       {
         docs: {
           sidebarPath: './sidebars.ts',
-          // Please change this to your repo.
-          // Remove this to remove the "edit this page" links.
-          editUrl:
-            'https://github.com/rushairer/go-pipeline/tree/main/homepage/',
+          editUrl: 'https://github.com/rushairer/go-pipeline-homepage/tree/main/',
         },
         blog: {
           showReadingTime: true,
-          // Please change this to your repo.
-          // Remove this to remove the "edit this page" links.
-          editUrl:
-            'https://github.com/rushairer/go-pipeline/tree/main/homepage/',
+          editUrl: 'https://github.com/rushairer/go-pipeline-homepage/tree/main/',
         },
         theme: {
           customCss: './src/css/custom.css',
@@ -71,13 +51,12 @@ const config: Config = {
   ],
 
   themes: ['@docusaurus/theme-mermaid'],
-  
+
   markdown: {
     mermaid: true,
   },
 
   themeConfig: {
-    // Replace with your project's social card
     image: 'img/docusaurus-social-card.jpg',
     navbar: {
       title: 'Go Pipeline',
@@ -113,7 +92,6 @@ const config: Config = {
               label: '快速开始',
               to: '/docs/intro',
             },
-
           ],
         },
         {
@@ -132,7 +110,6 @@ const config: Config = {
         {
           title: '更多',
           items: [
-
             {
               label: 'GitHub',
               href: 'https://github.com/rushairer/go-pipeline',
