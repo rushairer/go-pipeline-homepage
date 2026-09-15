@@ -1,12 +1,12 @@
 ---
-sidebar_position: 6
+sidebar_position: 7
 ---
 
 # API Reference
 
-This page summarizes the public API and the semantics clarified in 2.2.4.
+This page reflects the public API on current `main` and the hardened concurrency contract.
 
-## Core Interfaces
+## Core interfaces
 
 ```go
 type Pipeline[T any] interface {
@@ -20,58 +20,68 @@ type Pipeline[T any] interface {
 type PipelineChannel[T any] interface {
 	DataChan() chan<- T
 	ErrorChan(size int) <-chan error
-	Done() <-chan struct{}
 }
 ```
+
+- `DataChan()` is the producer input. Writes may block when configured capacity and downstream backpressure are exhausted.
+- `ErrorChan(size)` uses the first call to choose capacity. Standard delivery is non-blocking / best-effort; events may be dropped if the buffer is full.
 
 ```go
 type Performer[T any] interface {
 	AsyncPerform(ctx context.Context) error
 	SyncPerform(ctx context.Context) error
-	Start(ctx context.Context) (<-chan struct{}, <-chan error)
-	Run(ctx context.Context, errBuf int) error
 }
 ```
 
-## Convenience APIs
+- `AsyncPerform(ctx)` occupies the caller goroutine; `Async` means batch flushes may run concurrently.
+- `SyncPerform(ctx)` executes batch flushes serially in the current execution path.
+- Concurrent starts on the same instance return `ErrAlreadyRunning`.
 
-- `Start(ctx)`: preferred async entrypoint
-- `Run(ctx, errBuf)`: preferred sync entrypoint
-- Wait for `done`, not for error-channel closure
-- Consuming `errs` is recommended, not mandatory
+## `PipelineImpl` convenience methods
+
+`Start`, `Run`, and `Done` are concrete helper methods inherited by pipeline implementations; they are not members of `Performer` or `PipelineChannel`.
+
+### Start
+
+```go
+done, errs := pipeline.Start(ctx)
+```
+
+- Non-blocking goroutine wrapper around `AsyncPerform`.
+- `done` signals **run-loop completion**.
+- `done` is not a global join barrier for previously dispatched async flushes.
+- `errs` is best-effort observability, not durable failure storage.
+
+### Done
+
+```go
+done := pipeline.Done()
+```
+
+Use the run-bound `done` returned by `Start` when possible. `Done()` is mainly for querying the current run from another location after the run has started.
+
+Applications requiring “all side effects durably complete” must provide their own completion barrier in the processor or upper layer.
+
+### Run
+
+```go
+err := pipeline.Run(ctx, 128)
+```
+
+`Run(ctx, errBuf)` initializes error-channel capacity and runs `SyncPerform` synchronously.
 
 ## Configuration
 
 ```go
-func NewPipelineConfig() PipelineConfig
-func (c PipelineConfig) WithBufferSize(size uint32) PipelineConfig
-func (c PipelineConfig) WithFlushSize(size uint32) PipelineConfig
-func (c PipelineConfig) WithFlushInterval(interval time.Duration) PipelineConfig
-func (c PipelineConfig) WithDrainOnCancel(enabled bool) PipelineConfig
-func (c PipelineConfig) WithDrainGracePeriod(d time.Duration) PipelineConfig
-func (c PipelineConfig) WithFinalFlushOnCloseTimeout(d time.Duration) PipelineConfig
-func (c PipelineConfig) WithMaxConcurrentFlushes(n uint32) PipelineConfig
-func (c PipelineConfig) ValidateOrDefault() PipelineConfig
-```
-
-## Standard Pipeline
-
-```go
-type FlushStandardFunc[T any] func(ctx context.Context, batchData []T) error
-func NewDefaultStandardPipeline[T any](flushFunc FlushStandardFunc[T]) *StandardPipeline[T]
-func NewStandardPipeline[T any](config PipelineConfig, flushFunc FlushStandardFunc[T]) *StandardPipeline[T]
-```
-
-## Deduplication Pipeline
-
-```go
-type UniqueKeyData interface {
-	GetKey() string
+type PipelineConfig struct {
+	BufferSize               uint32
+	FlushSize                uint32
+	FlushInterval            time.Duration
+	DrainOnCancel            bool
+	DrainGracePeriod         time.Duration
+	FinalFlushOnCloseTimeout time.Duration
+	MaxConcurrentFlushes     uint32
 }
-
-type FlushDeduplicationFunc[T UniqueKeyData] func(ctx context.Context, batchData map[string]T) error
-func NewDefaultDeduplicationPipeline[T UniqueKeyData](flushFunc FlushDeduplicationFunc[T]) *DeduplicationPipeline[T]
-func NewDeduplicationPipeline[T UniqueKeyData](config PipelineConfig, flushFunc FlushDeduplicationFunc[T]) *DeduplicationPipeline[T]
 ```
 
 ## Hooks
@@ -84,11 +94,21 @@ type MetricsHook interface {
 }
 ```
 
-- Flush duration is only measured when a `MetricsHook` is installed.
-- `ErrorDropped()` reports overflow on the error channel.
+- Flush timing is measured only when metrics are installed.
+- `Error(err)` runs when an error observation is successfully queued.
+- `ErrorDropped()` reports error-channel saturation.
 
-## Public Errors
+## Public errors
 
 - `ErrAlreadyRunning`
 - `ErrContextIsClosed`
 - `ErrContextDrained`
+
+## Key behavior
+
+- `MaxConcurrentFlushes` is both a concurrency cap and a hard-backpressure boundary.
+- Closing `DataChan()` synchronously flushes the current partial tail batch before the run loop exits.
+- Run-loop completion does not imply all previously dispatched async flushes have joined.
+- `FinalFlushOnCloseTimeout` applies to the final partial close-path flush.
+
+See [Concurrency & Lifecycle Contract](./concurrency-contract).

@@ -4,15 +4,24 @@ sidebar_position: 1
 
 # Introduction à Go Pipeline v2
 
-Go Pipeline v2 est un framework Go haute performance pour le traitement par lots, avec génériques, sécurité concurrente, flush par taille ou intervalle, arrêt propre et modes standard / déduplication.
+Go Pipeline v2 est un framework Go de traitement par batch à haut débit : génériques, batching taille/temps, flush concurrents, backpressure explicite, réglage dynamique et hooks d’observabilité.
 
-## Capacités principales
+## Sémantique essentielle
 
-- Génériques Go 1.20+
-- Flush automatique par taille et fenêtre temporelle
-- API pratiques `Start()` et `Run()`
-- `DrainOnCancel`, `FinalFlushOnCloseTimeout`, `MaxConcurrentFlushes`
-- Hooks Logger et Metrics
+- `AsyncPerform(ctx)` exécute la boucle réception/batching dans la goroutine appelante ; `Async` concerne les flush de batches concurrents.
+- Utilisez `Start(ctx)` pour un démarrage non bloquant côté appelant.
+- Le `done` de `Start` indique la fin de la **run loop**, pas un join global des flush asynchrones déjà dispatchés.
+- `ErrorChan()` est non bloquant / best-effort ; des événements peuvent être perdus si le buffer est plein. `MetricsHook.ErrorDropped()` permet de l’observer.
+- Si aucun échec ne peut être perdu, persistez les échecs dans le processor ou une couche supérieure.
+- `MaxConcurrentFlushes` est aussi une frontière de backpressure intentionnelle.
+
+## Interfaces
+
+- `PipelineChannel[T]` : `DataChan`, `ErrorChan`
+- `Performer[T]` : `AsyncPerform`, `SyncPerform`
+- `Pipeline[T]` : composition avec `DataProcessor`
+
+Les types concrets exposent également `Start`, `Run` et `Done`.
 
 ## Installation
 
@@ -20,16 +29,9 @@ Go Pipeline v2 est un framework Go haute performance pour le traitement par lots
 go get github.com/rushairer/go-pipeline/v2@latest
 ```
 
-## Sémantique d'exécution
+## Suite
 
-- Attendez `done` renvoyé par `Start(ctx)`.
-- Consommer `errs` / `ErrorChan()` est recommandé, mais non obligatoire.
-- Le premier appel à `ErrorChan(size)` fixe la taille du buffer.
-- `MaxConcurrentFlushes` agit aussi comme mécanisme de contre-pression volontaire.
-
-## Nouveautés 2.2.4
-
-- Réutilisation des conteneurs de batch sur les chemins synchrones
-- Mesure de durée de flush uniquement si `MetricsHook` est activé
-- Clarification de la contre-pression dure de `MaxConcurrentFlushes`
-- Correction de la documentation autour de `done`, `ErrorChan` et des benchmarks
+- [Contrat de concurrence et de cycle de vie](./concurrency-contract)
+- [Pipeline Standard](./standard-pipeline)
+- [Configuration](./configuration)
+- [Référence API](./api-reference)

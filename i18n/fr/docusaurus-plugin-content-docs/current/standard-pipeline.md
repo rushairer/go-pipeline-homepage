@@ -2,23 +2,30 @@
 sidebar_position: 3
 ---
 
-# Pipeline standard
+# Pipeline Standard
 
-`StandardPipeline[T]` traite les donnees dans l'ordre d'ecriture. Il convient aux ecritures groupees en base, aux appels API par lots et a l'agregation de logs.
+`StandardPipeline[T]` vise le traitement continu à haut débit avec exécution par batches.
 
-## Création
+## Démarrage recommandé
 
 ```go
-pipeline := gopipeline.NewDefaultStandardPipeline(
-	func(ctx context.Context, batch []string) error {
-		return process(batch)
-	},
-)
+done, errs := pipeline.Start(ctx)
+// produire via pipeline.DataChan()
+<-done
 ```
 
-## Points importants
+`Start(ctx)` retourne immédiatement et utilise le modèle de flush concurrents de `AsyncPerform`.
 
-- Utilisez `Start(ctx)` puis attendez `done`
-- Fermez `DataChan()` côté producteur
-- `FinalFlushOnCloseTimeout` borne le flush final lors de la fermeture du canal
-- `MaxConcurrentFlushes` peut renvoyer la contre-pression vers l'amont
+:::important
+`done` signifie que la **run loop est terminée**. Ce n’est pas une barrière globale attendant tous les flush asynchrones déjà dispatchés. Une garantie forte de complétion doit être possédée par le processor ou une couche supérieure.
+:::
+
+## Erreurs
+
+`ErrorChan` est non bloquant / best-effort. Un buffer plein peut entraîner l’abandon de nouvelles observations d’erreur plutôt que de bloquer le hot path. Utilisez `MetricsHook.ErrorDropped()` pour le mesurer et un sink durable si aucun échec ne peut être perdu.
+
+## Fermeture et backpressure
+
+Le writer ferme `DataChan()`. Le batch final partiel est flushé de façon synchrone. `MaxConcurrentFlushes` borne les flush en vol et propage volontairement la backpressure lorsque la capacité est atteinte.
+
+Voir [Contrat de concurrence et de cycle de vie](./concurrency-contract).

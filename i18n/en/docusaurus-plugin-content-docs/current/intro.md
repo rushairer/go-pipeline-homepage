@@ -4,16 +4,18 @@ sidebar_position: 1
 
 # Go Pipeline v2 Introduction
 
-Go Pipeline v2 is a high-performance, concurrency-safe Go batching framework with generics, size/time-window flushing, graceful shutdown, hooks, dynamic tuning, and both standard and dedup modes.
+Go Pipeline v2 is a high-performance Go batching framework with generics, size/time-window batching, explicit backpressure, concurrent flush execution, dynamic tuning, and observability hooks.
 
-## Core Capabilities
+## Core capabilities
 
-- Go 1.20+ generics with type safety
-- Automatic flush by batch size and time window
-- Sync and async execution models
-- `Start()` and `Run()` convenience APIs
-- `DrainOnCancel`, `FinalFlushOnCloseTimeout`, `MaxConcurrentFlushes`
+- Go 1.20+ generics and type safety
+- size- and time-based batching
+- concurrent batch flushes with `AsyncPerform`
+- non-blocking caller launch with `Start()` and synchronous convenience with `Run()`
+- `DrainOnCancel`, `FinalFlushOnCloseTimeout`, and `MaxConcurrentFlushes`
+- non-blocking / best-effort `ErrorChan` observation
 - Logger and Metrics hooks
+- standard and deduplication pipelines
 
 ## Installation
 
@@ -21,72 +23,60 @@ Go Pipeline v2 is a high-performance, concurrency-safe Go batching framework wit
 go get github.com/rushairer/go-pipeline/v2@latest
 ```
 
-## Quick Start
+## Quick start
 
 ```go
-pipeline := gopipeline.NewDefaultStandardPipeline(
-	func(ctx context.Context, batch []int) error {
-		return flush(batch)
-	},
-)
+ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+defer cancel()
 
 done, errs := pipeline.Start(ctx)
 
 go func() {
-	for err := range errs {
-		log.Printf("pipeline error: %v", err)
+	for {
+		select {
+		case err := <-errs:
+			log.Printf("pipeline error: %v", err)
+		case <-done:
+			return
+		}
 	}
 }()
 
+ch := pipeline.DataChan()
 go func() {
-	defer close(pipeline.DataChan())
+	defer close(ch)
 	for _, item := range items {
-		pipeline.DataChan() <- item
+		select {
+		case ch <- item:
+		case <-ctx.Done():
+			return
+		}
 	}
 }()
 
 <-done
 ```
 
-## Runtime Semantics
+## Runtime semantics
 
-- Prefer waiting on `done` from `Start(ctx)`.
-- Consuming `errs` / `ErrorChan()` is recommended, but not mandatory.
-- The first `ErrorChan(size)` call decides the buffer size.
-- Producers should close `DataChan()`.
-- `MaxConcurrentFlushes` is an intentional hard-backpressure mechanism.
+- `AsyncPerform(ctx)` runs the receive/batch loop in the caller goroutine; `Async` means batch flushes may execute concurrently.
+- Use `Start(ctx)` when the caller should return immediately.
+- `done` returned by `Start` signals **run-loop completion**, not a global join of previously dispatched async flushes.
+- `errs` / `ErrorChan()` is best-effort observability. Events may be dropped when the buffer is full; observe this with `MetricsHook.ErrorDropped()`.
+- Persist failures in the processor or an upper layer when none may be lost.
+- `MaxConcurrentFlushes` is also an intentional hard-backpressure boundary.
 
-## Configuration
+## Core interfaces
 
-```go
-type PipelineConfig struct {
-	BufferSize               uint32
-	FlushSize                uint32
-	FlushInterval            time.Duration
-	DrainOnCancel            bool
-	DrainGracePeriod         time.Duration
-	FinalFlushOnCloseTimeout time.Duration
-	MaxConcurrentFlushes     uint32
-}
-```
+- `PipelineChannel[T]`: `DataChan`, `ErrorChan`
+- `Performer[T]`: `AsyncPerform`, `SyncPerform`
+- `Pipeline[T]`: combines `PipelineChannel`, `Performer`, and `DataProcessor`
 
-Defaults:
+Concrete pipeline types additionally expose `Start`, `Run`, and `Done` helpers.
 
-- `BufferSize: 100`
-- `FlushSize: 50`
-- `FlushInterval: 50ms`
+## Next
 
-## New in 2.2.4
-
-- Reuse batch containers on sync flush paths
-- Measure flush duration only when `MetricsHook` is enabled
-- Clarify hard-backpressure semantics of `MaxConcurrentFlushes`
-- Fix docs around `done`, `ErrorChan`, and benchmarks
-
-## Next Steps
-
-- [What is new in v2.2.4](./whats-new-v2.2.4)
+- [Concurrency & Lifecycle Contract](./concurrency-contract)
 - [Standard Pipeline](./standard-pipeline)
-- [Deduplication Pipeline](./deduplication-pipeline)
 - [Configuration](./configuration)
 - [API Reference](./api-reference)

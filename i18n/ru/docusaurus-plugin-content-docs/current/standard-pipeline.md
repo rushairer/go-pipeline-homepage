@@ -4,21 +4,28 @@ sidebar_position: 3
 
 # Стандартный пайплайн
 
-`StandardPipeline[T]` обрабатывает элементы в порядке записи и подходит для пакетной записи в БД, batch API-вызовов и агрегации логов.
+`StandardPipeline[T]` предназначен для непрерывной высокопроизводительной обработки упорядоченного входного потока batches.
 
-## Создание
+## Рекомендуемый запуск
 
 ```go
-pipeline := gopipeline.NewDefaultStandardPipeline(
-	func(ctx context.Context, batch []string) error {
-		return process(batch)
-	},
-)
+done, errs := pipeline.Start(ctx)
+// producer пишет в pipeline.DataChan()
+<-done
 ```
 
-## Важные моменты
+`Start(ctx)` возвращается сразу и внутри использует модель конкурентных flush из `AsyncPerform`.
 
-- Используйте `Start(ctx)` и ожидайте `done`
-- Закрывайте `DataChan()` со стороны продьюсера
-- `FinalFlushOnCloseTimeout` ограничивает финальный flush
-- `MaxConcurrentFlushes` может намеренно передавать backpressure наверх
+:::important
+`done` означает, что **run loop завершён**. Это не глобальный join-барьер для всех ранее отправленных async flush. Строгая гарантия «все побочные эффекты завершены» должна принадлежать processor или верхнему runtime.
+:::
+
+## Ошибки
+
+`ErrorChan` работает non-blocking / best-effort. При полном буфере новые наблюдения ошибок могут быть отброшены вместо блокировки hot path. Используйте `MetricsHook.ErrorDropped()` для наблюдения и durable sink, если потери failures недопустимы.
+
+## Закрытие и backpressure
+
+Writer закрывает `DataChan()`. Текущий неполный хвостовой batch flush-ится синхронно. `MaxConcurrentFlushes` ограничивает число flush в полёте и намеренно передаёт backpressure вверх по потоку при достижении лимита.
+
+См. [Контракт конкурентности и жизненного цикла](./concurrency-contract).

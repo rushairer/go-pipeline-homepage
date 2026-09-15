@@ -4,74 +4,54 @@ sidebar_position: 3
 
 # Standard Pipeline
 
-`StandardPipeline[T]` processes items in write order and is the default choice for batch writes, API aggregation, and log shipping.
+`StandardPipeline[T]` is designed for sustained high-throughput ordered input with batched processing, including bulk database writes, API batching, logs, and ETL.
 
-## Construction
-
-```go
-pipeline := gopipeline.NewDefaultStandardPipeline(
-	func(ctx context.Context, batch []string) error {
-		return process(batch)
-	},
-)
-```
-
-```go
-config := gopipeline.NewPipelineConfig().
-	WithBufferSize(400).
-	WithFlushSize(100).
-	WithFlushInterval(100 * time.Millisecond).
-	WithDrainOnCancel(true).
-	WithDrainGracePeriod(150 * time.Millisecond).
-	WithFinalFlushOnCloseTimeout(500 * time.Millisecond)
-
-pipeline := gopipeline.NewStandardPipeline(config, flushFunc)
-```
-
-## Recommended Execution
+## Recommended: non-blocking launch
 
 ```go
 done, errs := pipeline.Start(ctx)
 
-go func() {
-	for err := range errs {
-		log.Printf("flush error: %v", err)
-	}
-}()
-
-go func() {
-	defer close(pipeline.DataChan())
-	for _, item := range items {
-		select {
-		case pipeline.DataChan() <- item:
-		case <-ctx.Done():
-			return
-		}
-	}
-}()
+// Produce data through pipeline.DataChan().
+// The writer closes DataChan when input ends.
 
 <-done
 ```
 
-## Shutdown and Errors
+`Start(ctx)` returns immediately and internally uses the concurrent-flush `AsyncPerform` model.
 
-- Wait on `done`, not on error-channel closure.
-- Consuming `errs` is recommended but not mandatory.
-- Closing `DataChan()` triggers the final flush path.
-- If `FinalFlushOnCloseTimeout` is set, your flush function must respect the provided context.
+:::important
+`done` signals that the pipeline **run loop has ended**. It is not a global join barrier for every async flush already dispatched. If you need a strong “all side effects complete” guarantee, own that barrier in the processor or upper-layer runtime.
+:::
+
+## `AsyncPerform` vs `SyncPerform`
+
+```go
+// Occupies this goroutine; batch flushes may run concurrently.
+err := pipeline.AsyncPerform(ctx)
+
+// Batch flushes execute serially.
+err = pipeline.SyncPerform(ctx)
+```
+
+Use `Start(ctx)` or wrap `AsyncPerform` in a goroutine when the caller itself must not block.
+
+## Error handling
+
+- `flush` returns a batch/flush-level error.
+- `ErrorChan` uses non-blocking, best-effort delivery.
+- A full error buffer may drop new error observations rather than stall the data hot path.
+- `MetricsHook.ErrorDropped()` reports dropped observations.
+- Persist failures in a durable processor-owned sink when no failure may be lost.
+
+## Close semantics
+
+- The writer closes `DataChan()`.
+- The close path synchronously flushes the current partial tail batch.
+- `FinalFlushOnCloseTimeout` applies to that final partial flush.
+- `done` may close while async flushes dispatched earlier are still in flight.
 
 ## Backpressure
 
-```go
-config := gopipeline.NewPipelineConfig().
-	WithMaxConcurrentFlushes(uint32(runtime.NumCPU()))
-```
+`MaxConcurrentFlushes` limits in-flight async flushes. Once the limit is full, dispatch blocks, intake slows, and backpressure eventually reaches producers. This is intentional protection against unbounded goroutine or memory growth.
 
-- `0` means unlimited async flush concurrency.
-- A non-zero limit intentionally propagates backpressure upstream once saturated.
-- This is useful when protecting downstream systems matters more than keeping producers unblocked.
-
-## 2.2.4 Notes
-
-- Sync flush paths now reuse batch containers.
-- Async flush keeps steal-and-replace semantics for memory safety.
+See [Concurrency & Lifecycle Contract](./concurrency-contract).

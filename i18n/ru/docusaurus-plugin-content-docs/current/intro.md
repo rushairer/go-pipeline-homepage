@@ -4,15 +4,24 @@ sidebar_position: 1
 
 # Введение в Go Pipeline v2
 
-Go Pipeline v2 — высокопроизводительный Go-фреймворк для пакетной обработки с дженериками, безопасной конкурентностью, flush по размеру и времени, корректным завершением и режимами standard / deduplication.
+Go Pipeline v2 — высокопроизводительный Go-фреймворк пакетной обработки: generics, batching по размеру/времени, конкурентный flush, явный backpressure, динамическая настройка и hooks наблюдаемости.
 
-## Основные возможности
+## Ключевая семантика
 
-- Дженерики Go 1.20+
-- Автоматический flush по размеру и интервалу
-- Удобные API `Start()` и `Run()`
-- `DrainOnCancel`, `FinalFlushOnCloseTimeout`, `MaxConcurrentFlushes`
-- Hooks для логов и метрик
+- `AsyncPerform(ctx)` выполняет receive/batch loop в вызывающей goroutine; `Async` относится к конкурентному flush batches.
+- Для неблокирующего запуска вызывающей стороны используйте `Start(ctx)`.
+- `done` от `Start` означает завершение **run loop**, а не глобальный join уже отправленных async flush.
+- `ErrorChan()` работает non-blocking / best-effort; при полном буфере события могут быть отброшены. Это видно через `MetricsHook.ErrorDropped()`.
+- Если ни одна ошибка не может быть потеряна, сохраняйте failures в processor или верхнем слое.
+- `MaxConcurrentFlushes` также является намеренной границей hard backpressure.
+
+## Интерфейсы
+
+- `PipelineChannel[T]`: `DataChan`, `ErrorChan`
+- `Performer[T]`: `AsyncPerform`, `SyncPerform`
+- `Pipeline[T]`: объединяет их с `DataProcessor`
+
+Конкретные типы дополнительно предоставляют `Start`, `Run` и `Done`.
 
 ## Установка
 
@@ -20,16 +29,9 @@ Go Pipeline v2 — высокопроизводительный Go-фреймв�
 go get github.com/rushairer/go-pipeline/v2@latest
 ```
 
-## Семантика выполнения
+## Далее
 
-- Ожидайте `done`, который возвращает `Start(ctx)`.
-- Чтение `errs` / `ErrorChan()` рекомендуется, но не обязательно.
-- Первый вызов `ErrorChan(size)` определяет размер буфера.
-- `MaxConcurrentFlushes` также является механизмом жесткого backpressure.
-
-## Что изменилось в 2.2.4
-
-- Повторное использование контейнеров batch на синхронных путях
-- Измерение длительности flush только при включенном `MetricsHook`
-- Явное описание жесткого backpressure у `MaxConcurrentFlushes`
-- Исправления документации по `done`, `ErrorChan` и benchmark-командам
+- [Контракт конкурентности и жизненного цикла](./concurrency-contract)
+- [Стандартный пайплайн](./standard-pipeline)
+- [Конфигурация](./configuration)
+- [Справочник API](./api-reference)
